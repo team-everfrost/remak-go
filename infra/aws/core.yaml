@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Remak low-cost core AWS resources used by the OCI Go service and scraper Lambda
+
+Parameters:
+  ArtifactBucketName:
+    Type: String
+  DocumentBucketName:
+    Type: String
+  LambdaCodeBucketName:
+    Type: String
+  SESIdentityArn:
+    Type: String
+    Description: Verified SES email/domain identity ARN used as EMAIL_FROM.
+  ScrapeMaxReceiveCount:
+    Type: Number
+    Default: 3
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ArtifactBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveNoncurrentArtifacts
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref DocumentBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveNoncurrentDocuments
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+  LambdaCodeBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref LambdaCodeBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldPackages
+            Status: Enabled
+            ExpirationInDays: 90
+
+  ScrapeRequestDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: remak-scrape-request-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  ScrapeRequestQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: remak-scrape-request
+      VisibilityTimeout: 360
+      ReceiveMessageWaitTimeSeconds: 20
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ScrapeRequestDLQ.Arn
+        maxReceiveCount: !Ref ScrapeMaxReceiveCount
+
+  ScrapeResultDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: remak-scrape-result-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  ScrapeResultQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: remak-scrape-result
+      VisibilityTimeout: 120
+      ReceiveMessageWaitTimeSeconds: 20
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ScrapeResultDLQ.Arn
+        maxReceiveCount: 5
+
+  OCIServicePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Least-privilege policy for the Remak Go API and worker on OCI
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource:
+              - !Sub '${DocumentBucket.Arn}/*'
+              - !Sub '${ArtifactBucket.Arn}/scrapes/*'
+          - Effect: Allow
+            Action:
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:SendMessage
+            Resource: !GetAtt ScrapeRequestQueue.Arn
+          - Effect: Allow
+            Action:
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:ChangeMessageVisibility
+            Resource: !GetAtt ScrapeResultQueue.Arn
+          - Effect: Allow
+            Action:
+              - ses:SendEmail
+            Resource: !Ref SESIdentityArn
+
+Outputs:
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
+  DocumentBucketName:
+    Value: !Ref DocumentBucket
+  LambdaCodeBucketName:
+    Value: !Ref LambdaCodeBucket
+  ScrapeRequestQueueArn:
+    Value: !GetAtt ScrapeRequestQueue.Arn
+  ScrapeRequestQueueUrl:
+    Value: !Ref ScrapeRequestQueue
+  ScrapeResultQueueArn:
+    Value: !GetAtt ScrapeResultQueue.Arn
+  ScrapeResultQueueUrl:
+    Value: !Ref ScrapeResultQueue
+  OCIServicePolicyArn:
+    Description: Attach this managed policy to the IAM principal used by the OCI service.
+    Value: !Ref OCIServicePolicy

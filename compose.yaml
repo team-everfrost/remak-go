@@ -1,0 +1,45 @@
+name: remak-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.5-pg18
+    environment:
+      POSTGRES_DB: remak
+      POSTGRES_USER: remak
+      POSTGRES_PASSWORD: remak
+    ports:
+      - "5432:5432"
+    volumes:
+      - remak-postgres18-cluster:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remak -d remak"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  ministack:
+    image: ministackorg/ministack:1.4.2
+    environment:
+      SERVICES: s3,sqs
+      MINISTACK_REGION: ap-northeast-2
+      LOG_LEVEL: ${MINISTACK_LOG_LEVEL:-INFO}
+      PERSIST_STATE: "1"
+      S3_PERSIST: "1"
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./infra/ministack/init.sh:/etc/localstack/init/ready.d/init.sh:ro
+      - remak-ministack-state:/tmp/ministack-state
+      - remak-ministack-s3:/tmp/ministack-data/s3
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://localhost:4566/_ministack/ready'))['failed'] == 0"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  # The previous remak-postgres (PG17) volume is intentionally not deleted.
+  # PostgreSQL major versions require pg_dump/restore or pg_upgrade.
+  remak-postgres18-cluster:
+  remak-ministack-state:
+  remak-ministack-s3:
