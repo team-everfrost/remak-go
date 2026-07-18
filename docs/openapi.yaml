@@ -1,0 +1,821 @@
+openapi: 3.1.0
+info:
+  title: Remak API
+  version: 1.0.0
+  description: Existing Nuxt frontend and Chrome extension compatible HTTP contract.
+servers:
+  - url: http://localhost:8080
+    description: Local
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+  - name: Auth
+  - name: Account
+  - name: Documents
+  - name: Taxonomy
+  - name: Chat
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      security: []
+      operationId: healthLive
+      responses:
+        '200': {$ref: '#/components/responses/Health'}
+  /health/ready:
+    get:
+      tags: [Health]
+      security: []
+      operationId: healthReady
+      responses:
+        '200': {$ref: '#/components/responses/Health'}
+        '500': {$ref: '#/components/responses/Error'}
+  /auth/signup-code:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: requestSignupCode
+      requestBody: {$ref: '#/components/requestBodies/Email'}
+      responses:
+        '200': {$ref: '#/components/responses/Challenge'}
+        '400': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /auth/verify-code:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: verifySignupCode
+      requestBody: {$ref: '#/components/requestBodies/VerifyCode'}
+      responses:
+        '200': {$ref: '#/components/responses/Verification'}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /auth/local/signup:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SignupInput'}
+      responses:
+        '201': {$ref: '#/components/responses/TokenPair'}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /auth/local/login:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginInput'}
+      responses:
+        '200': {$ref: '#/components/responses/TokenPair'}
+        '401': {$ref: '#/components/responses/Error'}
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: refresh
+      requestBody: {$ref: '#/components/requestBodies/RefreshToken'}
+      responses:
+        '200': {$ref: '#/components/responses/TokenPair'}
+        '401': {$ref: '#/components/responses/Error'}
+  /auth/local/logout:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: logout
+      requestBody: {$ref: '#/components/requestBodies/RefreshToken'}
+      responses:
+        '200': {$ref: '#/components/responses/EmptySuccess'}
+  /auth/check-email:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: checkEmail
+      description: Always neutral to prevent account enumeration.
+      requestBody: {$ref: '#/components/requestBodies/Email'}
+      responses:
+        '200':
+          description: Neutral result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/SuccessBase'}
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [available]
+                        properties:
+                          available: {type: boolean, const: true}
+  /auth/reset-code:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: requestResetCode
+      requestBody: {$ref: '#/components/requestBodies/Email'}
+      responses:
+        '200': {$ref: '#/components/responses/Challenge'}
+        '429': {$ref: '#/components/responses/Error'}
+  /auth/verify-reset-code:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: verifyResetCode
+      requestBody: {$ref: '#/components/requestBodies/VerifyCode'}
+      responses:
+        '200': {$ref: '#/components/responses/Verification'}
+        '400': {$ref: '#/components/responses/Error'}
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      security: []
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CompleteChallengeInput'}
+      responses:
+        '200': {$ref: '#/components/responses/EmptySuccess'}
+        '400': {$ref: '#/components/responses/Error'}
+  /auth/withdraw-code:
+    post:
+      tags: [Auth]
+      operationId: requestWithdrawCode
+      responses:
+        '200': {$ref: '#/components/responses/Challenge'}
+        '401': {$ref: '#/components/responses/Error'}
+  /auth/verify-withdraw-code:
+    post:
+      tags: [Auth]
+      operationId: verifyWithdrawCode
+      requestBody: {$ref: '#/components/requestBodies/VerifyCode'}
+      responses:
+        '200': {$ref: '#/components/responses/Verification'}
+        '400': {$ref: '#/components/responses/Error'}
+  /auth/withdraw:
+    post:
+      tags: [Auth]
+      operationId: withdraw
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CompleteChallengeInput'}
+      responses:
+        '200': {$ref: '#/components/responses/EmptySuccess'}
+        '400': {$ref: '#/components/responses/Error'}
+  /user:
+    get:
+      tags: [Account]
+      operationId: getProfile
+      responses:
+        '200': {$ref: '#/components/responses/Profile'}
+        '401': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [Account]
+      operationId: updateProfile
+      description: role is accepted for 2023 wire compatibility but ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateProfileInput'}
+      responses:
+        '200': {$ref: '#/components/responses/Profile'}
+        '400': {$ref: '#/components/responses/Error'}
+  /user/storage/usage:
+    get:
+      tags: [Account]
+      operationId: getStorageUsage
+      responses:
+        '200': {$ref: '#/components/responses/Integer'}
+  /user/storage/size:
+    get:
+      tags: [Account]
+      operationId: getStorageLimit
+      responses:
+        '200': {$ref: '#/components/responses/Integer'}
+  /document:
+    get:
+      tags: [Documents]
+      operationId: listDocuments
+      parameters:
+        - {$ref: '#/components/parameters/PageToken'}
+        - {$ref: '#/components/parameters/LegacyDocID'}
+        - {$ref: '#/components/parameters/LegacyCursor'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {$ref: '#/components/responses/Documents'}
+        '400': {$ref: '#/components/responses/Error'}
+  /document/{documentID}:
+    parameters:
+      - {$ref: '#/components/parameters/DocumentID'}
+    get:
+      tags: [Documents]
+      operationId: getDocument
+      responses:
+        '200': {$ref: '#/components/responses/Document'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [Documents]
+      operationId: deleteDocument
+      description: Soft-deletes the row and atomically schedules asynchronous S3 cleanup.
+      responses:
+        '200': {$ref: '#/components/responses/EmptySuccess'}
+        '404': {$ref: '#/components/responses/Error'}
+  /document/memo:
+    post:
+      tags: [Documents]
+      operationId: createMemo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MemoInput'}
+      responses:
+        '201': {$ref: '#/components/responses/Document'}
+        '400': {$ref: '#/components/responses/Error'}
+  /document/memo/{documentID}:
+    parameters:
+      - {$ref: '#/components/parameters/DocumentID'}
+    patch:
+      tags: [Documents]
+      operationId: updateMemo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MemoInput'}
+      responses:
+        '200': {$ref: '#/components/responses/Document'}
+        '404': {$ref: '#/components/responses/Error'}
+  /document/webpage:
+    post:
+      tags: [Documents]
+      operationId: createWebpage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/WebpageInput'}
+      responses:
+        '201': {$ref: '#/components/responses/Document'}
+        '400': {$ref: '#/components/responses/Error'}
+  /document/webpage/{documentID}:
+    parameters:
+      - {$ref: '#/components/parameters/DocumentID'}
+    patch:
+      tags: [Documents]
+      operationId: updateWebpage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/WebpageInput'}
+      responses:
+        '200': {$ref: '#/components/responses/Document'}
+        '404': {$ref: '#/components/responses/Error'}
+  /document/file:
+    post:
+      tags: [Documents]
+      operationId: uploadFiles
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items: {type: string, format: binary}
+      responses:
+        '201': {$ref: '#/components/responses/Documents'}
+        '400': {$ref: '#/components/responses/Error'}
+  /document/file/{documentID}:
+    parameters:
+      - {$ref: '#/components/parameters/DocumentID'}
+    get:
+      tags: [Documents]
+      operationId: downloadFile
+      responses:
+        '200': {$ref: '#/components/responses/String'}
+        '404': {$ref: '#/components/responses/Error'}
+  /document/search/text:
+    get:
+      tags: [Documents]
+      operationId: searchDocumentsText
+      parameters:
+        - {$ref: '#/components/parameters/Query'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200': {$ref: '#/components/responses/Documents'}
+  /document/search/hybrid:
+    get:
+      tags: [Documents]
+      operationId: searchDocumentsHybrid
+      parameters:
+        - {$ref: '#/components/parameters/Query'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {$ref: '#/components/responses/Documents'}
+  /document/search/tag:
+    get:
+      tags: [Documents]
+      operationId: listDocumentsByTag
+      parameters:
+        - name: tagName
+          in: query
+          required: true
+          schema: {type: string}
+        - {$ref: '#/components/parameters/PageToken'}
+        - {$ref: '#/components/parameters/LegacyDocID'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {$ref: '#/components/responses/Documents'}
+  /document/search/collection:
+    get:
+      tags: [Documents]
+      operationId: listDocumentsByCollection
+      parameters:
+        - name: collectionName
+          in: query
+          required: true
+          schema: {type: string}
+        - {$ref: '#/components/parameters/PageToken'}
+        - {$ref: '#/components/parameters/LegacyDocID'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {$ref: '#/components/responses/Documents'}
+  /tag:
+    get:
+      tags: [Taxonomy]
+      operationId: listTags
+      parameters:
+        - name: query
+          in: query
+          schema: {type: string}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200': {$ref: '#/components/responses/Tags'}
+  /collection:
+    get:
+      tags: [Taxonomy]
+      operationId: listCollections
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200': {$ref: '#/components/responses/Collections'}
+    post:
+      tags: [Taxonomy]
+      operationId: createCollection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateCollectionInput'}
+      responses:
+        '201': {$ref: '#/components/responses/Collection'}
+        '409': {$ref: '#/components/responses/Error'}
+  /collection/add/{name}:
+    parameters:
+      - {$ref: '#/components/parameters/CollectionName'}
+    post:
+      tags: [Taxonomy]
+      operationId: addDocumentsToCollection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddDocumentsInput'}
+      responses:
+        '201': {$ref: '#/components/responses/EmptySuccess'}
+        '404': {$ref: '#/components/responses/Error'}
+  /collection/{name}:
+    parameters:
+      - {$ref: '#/components/parameters/CollectionName'}
+    get:
+      tags: [Taxonomy]
+      operationId: getCollection
+      responses:
+        '200': {$ref: '#/components/responses/Collection'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [Taxonomy]
+      operationId: updateCollection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateCollectionInput'}
+      responses:
+        '200': {$ref: '#/components/responses/Collection'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [Taxonomy]
+      operationId: deleteCollection
+      responses:
+        '200': {$ref: '#/components/responses/EmptySuccess'}
+        '404': {$ref: '#/components/responses/Error'}
+  /chat/rag:
+    post:
+      tags: [Chat]
+      operationId: rag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [query]
+              properties:
+                query: {type: string}
+                context: {type: string, deprecated: true, description: Accepted for compatibility and ignored.}
+      responses:
+        '201':
+          description: SSE. First `documents`, then one or more `chat` events.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        '400': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    DocumentID:
+      name: documentID
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    CollectionName:
+      name: name
+      in: path
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 100}
+    Query:
+      name: query
+      in: query
+      required: true
+      schema: {type: string}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+    Offset:
+      name: offset
+      in: query
+      schema: {type: integer, minimum: 0, default: 0}
+    PageToken:
+      name: page-token
+      in: query
+      schema: {type: string}
+      description: Opaque cursor returned in X-Next-Cursor.
+    LegacyDocID:
+      name: doc-id
+      in: query
+      deprecated: true
+      schema: {type: string, format: uuid}
+    LegacyCursor:
+      name: cursor
+      in: query
+      deprecated: true
+      schema: {type: string, format: date-time}
+  requestBodies:
+    Email:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [email]
+            properties:
+              email: {type: string, format: email}
+    VerifyCode:
+      required: true
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/VerifyCodeInput'}
+    RefreshToken:
+      required: false
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            properties:
+              refreshToken: {type: string}
+  responses:
+    Health:
+      description: Healthy
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/SuccessBase'}
+              - type: object
+                properties:
+                  data:
+                    type: object
+                    required: [status]
+                    properties:
+                      status: {type: string, const: ok}
+    Challenge:
+      description: Verification challenge
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ChallengeEnvelope'}
+    Verification:
+      description: Short-lived verification token
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/VerificationEnvelope'}
+    TokenPair:
+      description: Access and rotating refresh tokens
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TokenPairEnvelope'}
+    Profile:
+      description: Account profile
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ProfileEnvelope'}
+    Document:
+      description: Document
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/DocumentEnvelope'}
+    Documents:
+      description: Documents
+      headers:
+        X-Next-Cursor:
+          schema: {type: string}
+          description: Send as page-token on the next cursor request.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/DocumentsEnvelope'}
+    Collection:
+      description: Collection
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/CollectionEnvelope'}
+    Collections:
+      description: Collections
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/SuccessBase'}
+              - type: object
+                properties:
+                  data: {type: array, items: {$ref: '#/components/schemas/Collection'}}
+    Tags:
+      description: Tags
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/SuccessBase'}
+              - type: object
+                properties:
+                  data: {type: array, items: {$ref: '#/components/schemas/Tag'}}
+    String:
+      description: String result
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/SuccessBase'}
+              - type: object
+                properties: {data: {type: string}}
+    Integer:
+      description: Integer result
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/SuccessBase'}
+              - type: object
+                properties: {data: {type: integer, format: int64}}
+    EmptySuccess:
+      description: Success with null or empty data
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/SuccessBase'}
+    Error:
+      description: Application error
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+  schemas:
+    SuccessBase:
+      type: object
+      required: [message, data]
+      properties:
+        message: {type: string, const: success}
+        data: true
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+    TokenPair:
+      type: object
+      additionalProperties: false
+      required: [accessToken, refreshToken, tokenType, expiresIn]
+      properties:
+        accessToken: {type: string}
+        refreshToken: {type: string}
+        tokenType: {type: string, const: Bearer}
+        expiresIn: {type: integer, format: int64, example: 900}
+    TokenPairEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessBase'}
+        - type: object
+          properties: {data: {$ref: '#/components/schemas/TokenPair'}}
+    SignupInput:
+      type: object
+      additionalProperties: false
+      required: [email, password, verificationToken]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, minLength: 10}
+        name: {type: string}
+        verificationToken: {type: string}
+    LoginInput:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string}
+    VerifyCodeInput:
+      type: object
+      additionalProperties: false
+      required: [email, code]
+      properties:
+        challengeId: {type: string, format: uuid}
+        email: {type: string, format: email}
+        code: {type: string, pattern: '^[0-9]{6}$'}
+    CompleteChallengeInput:
+      type: object
+      additionalProperties: false
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, minLength: 10}
+        verificationToken: {type: string}
+    ChallengeEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessBase'}
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [challengeId, expiresAt]
+              properties:
+                challengeId: {type: string, format: uuid}
+                expiresAt: {type: string, format: date-time}
+                debugCode: {type: string, description: Development only.}
+    VerificationEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessBase'}
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [verificationToken]
+              properties: {verificationToken: {type: string}}
+    Profile:
+      type: object
+      required: [email, name, imageUrl, role]
+      properties:
+        uid: {type: string, format: uuid}
+        email: {type: string, format: email}
+        name: {type: string}
+        imageUrl: {type: string}
+        role: {type: string, enum: [BASIC, PLUS, ADMIN]}
+        plan: {type: string, enum: [FREE, PLUS]}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    ProfileEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessBase'}
+        - type: object
+          properties: {data: {$ref: '#/components/schemas/Profile'}}
+    UpdateProfileInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string}
+        imageUrl: {type: string}
+        role: {type: string, deprecated: true, description: Ignored.}
+    Document:
+      type: object
+      required: [docId, title, type, url, content, summary, status, thumbnailUrl, createdAt, updatedAt, tags]
+      properties:
+        docId: {type: string, format: uuid}
+        title: {type: string}
+        type: {type: string, enum: [WEBPAGE, MEMO, IMAGE, FILE]}
+        url: {type: string}
+        content: {type: string}
+        summary: {type: string}
+        status:
+          type: string
+          enum: [DRAFT, SCRAPE_PENDING, SCRAPE_PROCESSING, SCRAPE_REJECTED, ENRICH_PENDING, ENRICH_PROCESSING, ENRICH_REJECTED, COMPLETED]
+        thumbnailUrl: {type: string}
+        fileSize: {type: integer, format: int64, minimum: 0}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        tags: {type: array, items: {type: string}}
+    DocumentEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessBase'}
+        - type: object
+          properties: {data: {$ref: '#/components/schemas/Document'}}
+    DocumentsEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessBase'}
+        - type: object
+          properties: {data: {type: array, items: {$ref: '#/components/schemas/Document'}}}
+    MemoInput:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties: {content: {type: string, minLength: 1}}
+    WebpageInput:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        title: {type: string}
+        url: {type: string, format: uri}
+        content: {type: string, deprecated: true, description: Accepted and ignored.}
+    Tag:
+      type: object
+      required: [name, count]
+      properties:
+        name: {type: string}
+        count: {type: integer, format: int64}
+    Collection:
+      type: object
+      required: [name, description, count]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        count: {type: integer, format: int64}
+    CollectionEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/SuccessBase'}
+        - type: object
+          properties: {data: {$ref: '#/components/schemas/Collection'}}
+    CreateCollectionInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 100}
+        description: {type: string}
+        docIds: {type: array, items: {type: string, format: uuid}}
+    UpdateCollectionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        newName: {type: string, minLength: 1, maxLength: 100}
+        description: {type: string}
+        addedDocIds: {type: array, items: {type: string, format: uuid}}
+        removedDocIds: {type: array, items: {type: string, format: uuid}}
+    AddDocumentsInput:
+      type: object
+      additionalProperties: false
+      required: [docIds]
+      properties:
+        docIds: {type: array, items: {type: string, format: uuid}}
