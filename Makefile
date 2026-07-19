@@ -5,7 +5,7 @@ ifeq ($(TOOLS_BIN),)
 TOOLS_BIN := $(shell go env GOPATH)/bin
 endif
 
-.PHONY: help tools generate fmt lint security test test-race test-integration test-legacy compose-up compose-down migrate legacy-migrate api worker check
+.PHONY: help tools generate fmt fmt-check lint security test test-race test-integration test-legacy compose-up compose-down migrate legacy-migrate api worker check
 
 help:
 	@awk 'BEGIN {FS = ":.*##"; print "Usage: make <target>"} /^[a-zA-Z_-]+:.*##/ {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -13,15 +13,16 @@ help:
 tools: ## Install pinned development tools
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 	go install github.com/pressly/goose/v3/cmd/goose@v3.26.0
-	go install golang.org/x/tools/cmd/goimports@v0.34.0
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
 generate: ## Generate database access code
 	$(TOOLS_BIN)/sqlc generate
 
 fmt: ## Format source code
-	gofmt -w $$(find . -name '*.go' -not -path './internal/dbgen/*')
-	$(TOOLS_BIN)/goimports -w $$(find . -name '*.go' -not -path './internal/dbgen/*')
+	$(TOOLS_BIN)/golangci-lint fmt
+
+fmt-check: ## Fail if committed Go source is not formatted
+	$(TOOLS_BIN)/golangci-lint fmt --diff
 
 lint: ## Run static analysis
 	go vet ./...
@@ -61,4 +62,4 @@ api: ## Run the API
 worker: ## Run the async worker
 	go run ./cmd/worker
 
-check: generate fmt lint test ## Run the same checks as CI
+check: generate fmt-check lint test ## Run the local CI checks without rewriting source

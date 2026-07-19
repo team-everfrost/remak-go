@@ -30,7 +30,11 @@ func NewSESCodeSender(client sesSender, from string) *SESCodeSender {
 
 func (s *SESCodeSender) SendVerificationCode(ctx context.Context, email, purpose, code string) error {
 	subject := "Remak 이메일 인증 코드"
-	body := fmt.Sprintf("Remak %s 인증 코드는 %s 입니다. 10분 안에 입력해 주세요. 본인이 요청하지 않았다면 이 메일을 무시하세요.", purposeName(purpose), code)
+	body := fmt.Sprintf(
+		"Remak %s 인증 코드는 %s 입니다. 10분 안에 입력해 주세요. 본인이 요청하지 않았다면 이 메일을 무시하세요.",
+		purposeName(purpose),
+		code,
+	)
 	_, err := s.client.SendEmail(ctx, &sesv2.SendEmailInput{
 		FromEmailAddress: aws.String(s.from),
 		Destination:      &types.Destination{ToAddresses: []string{email}},

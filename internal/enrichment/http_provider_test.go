@@ -36,7 +36,12 @@ func TestHTTPProviderAnalyzeRequestsStructuredJSONAndNormalizesTags(t *testing.T
 			t.Errorf("unexpected messages: %+v", body.Messages)
 		}
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = response.Write([]byte(`{"choices":[{"message":{"content":"{\"summary\":\" 요약 결과 \" ,\"tags\":[\"#Go\",\" go \",\"PostgreSQL\",\"RAG\"]}"}}]}`))
+		payload := `{"choices":[{"message":{"content":"` +
+			`{\"summary\":\" 요약 결과 \" ,\"tags\":[\"#Go\",\" go \",\"PostgreSQL\",\"RAG\"]}` +
+			`"}}]}`
+		_, _ = response.Write(
+			[]byte(payload),
+		)
 	}))
 	defer server.Close()
 

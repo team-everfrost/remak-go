@@ -23,7 +23,10 @@ func (p *HashProvider) Embed(_ context.Context, texts []string) ([][]float32, er
 	result := make([][]float32, len(texts))
 	for index, text := range texts {
 		vector := make([]float32, p.dimensions)
-		for _, token := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		tokens := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		})
+		for _, token := range tokens {
 			digest := sha256.Sum256([]byte(token))
 			position := binary.BigEndian.Uint32(digest[:4]) % uint32(p.dimensions)
 			sign := float32(1)

@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,7 @@ func TestRequestIDRejectsUnboundedOrUnsafeValues(t *testing.T) {
 	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(RequestIDFromContext(r.Context())))
 	}))
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	request.Header.Set("X-Request-ID", strings.Repeat("x", 129)+"\nforged")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -29,7 +30,8 @@ func TestAccessLogRecordsStatusAndBytes(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte("ok"))
 	})))
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/documents", nil))
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/documents", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
 	logLine := output.String()
 	if !strings.Contains(logLine, `"status":201`) || !strings.Contains(logLine, `"bytes":2`) {
 		t.Fatalf("missing response metrics: %s", logLine)

@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
 	"github.com/team-everfrost/remak-go/internal/account"
 	"github.com/team-everfrost/remak-go/internal/chat"
 	"github.com/team-everfrost/remak-go/internal/dbgen"
@@ -55,11 +56,19 @@ func main() {
 	if cfg.EmailFrom != "" {
 		codeSender = identity.NewSESCodeSender(clients.SES, cfg.EmailFrom)
 	}
-	identityHandler := identity.NewHandler(identity.NewService(pool, tokens, codeSender, cfg.ChallengeSecret, cfg.ExposeDebugCodes))
+	identityHandler := identity.NewHandler(
+		identity.NewService(pool, tokens, codeSender, cfg.ChallengeSecret, cfg.ExposeDebugCodes),
+	)
 	accountHandler := account.NewHandler(account.NewService(pool))
 	var provider enrichment.Provider = enrichment.NewHashProvider(cfg.EmbeddingDimensions)
 	if cfg.AIBaseURL != "" {
-		provider = enrichment.NewHTTPProvider(cfg.AIBaseURL, cfg.AIAPIKey, cfg.EmbeddingModel, cfg.ChatModel, cfg.EmbeddingDimensions)
+		provider = enrichment.NewHTTPProvider(
+			cfg.AIBaseURL,
+			cfg.AIAPIKey,
+			cfg.EmbeddingModel,
+			cfg.ChatModel,
+			cfg.EmbeddingDimensions,
+		)
 	}
 	libraryService := library.NewService(pool)
 	retrievalService := retrieval.NewService(dbgen.New(pool), provider, logger)
@@ -100,7 +109,14 @@ func main() {
 		protected.Mount("/chat", chatHandler.Routes())
 	})
 
-	server := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 2 * time.Minute, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second}
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		WriteTimeout:      2 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		logger.Info("api listening", "address", cfg.HTTPAddr, "environment", cfg.Environment)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

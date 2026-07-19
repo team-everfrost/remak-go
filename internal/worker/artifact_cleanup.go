@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/platform/pgutil"
 )
@@ -24,8 +25,19 @@ type ArtifactCleanupProcessor struct {
 	logger         *slog.Logger
 }
 
-func NewArtifactCleanupProcessor(pool *pgxpool.Pool, client cleanupS3, documentBucket, artifactBucket string, logger *slog.Logger) *ArtifactCleanupProcessor {
-	return &ArtifactCleanupProcessor{queries: dbgen.New(pool), s3: client, documentBucket: documentBucket, artifactBucket: artifactBucket, logger: logger}
+func NewArtifactCleanupProcessor(
+	pool *pgxpool.Pool,
+	client cleanupS3,
+	documentBucket, artifactBucket string,
+	logger *slog.Logger,
+) *ArtifactCleanupProcessor {
+	return &ArtifactCleanupProcessor{
+		queries:        dbgen.New(pool),
+		s3:             client,
+		documentBucket: documentBucket,
+		artifactBucket: artifactBucket,
+		logger:         logger,
+	}
 }
 
 func (p *ArtifactCleanupProcessor) ProcessBatch(ctx context.Context, batchSize int32) (int, error) {
@@ -41,7 +53,15 @@ func (p *ArtifactCleanupProcessor) ProcessBatch(ctx context.Context, batchSize i
 			}); failErr != nil {
 				return len(jobs), fmt.Errorf("fail artifact cleanup job: %w", failErr)
 			}
-			p.logger.Error("artifact cleanup failed", "job_id", job.ID, "document_id", job.DocumentID, "error", processErr)
+			p.logger.Error(
+				"artifact cleanup failed",
+				"job_id",
+				job.ID,
+				"document_id",
+				job.DocumentID,
+				"error",
+				processErr,
+			)
 		}
 	}
 	return len(jobs), nil
@@ -66,7 +86,11 @@ func (p *ArtifactCleanupProcessor) process(ctx context.Context, job dbgen.Artifa
 		if artifact.Type == dbgen.DocumentTypeWEBPAGE {
 			bucket = p.artifactBucket
 		}
-		if _, err := p.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}); err != nil {
+		input := &s3.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(key),
+		}
+		if _, err := p.s3.DeleteObject(ctx, input); err != nil {
 			return fmt.Errorf("delete s3://%s/%s: %w", bucket, key, err)
 		}
 	}

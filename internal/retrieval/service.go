@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pgvector/pgvector-go"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/enrichment"
 	"github.com/team-everfrost/remak-go/internal/platform/httpx"
@@ -86,7 +87,15 @@ func (s *Service) Search(ctx context.Context, ownerID uuid.UUID, rawQuery string
 	chunks := make([]ChunkHit, 0, minInt(len(semantic), 12))
 	for _, candidate := range semantic {
 		if len(chunks) < 12 {
-			chunks = append(chunks, ChunkHit{DocumentID: candidate.DocumentID, Title: pgutil.String(candidate.DocumentTitle), Content: candidate.Content, Score: candidate.Score})
+			chunks = append(
+				chunks,
+				ChunkHit{
+					DocumentID: candidate.DocumentID,
+					Title:      pgutil.String(candidate.DocumentTitle),
+					Content:    candidate.Content,
+					Score:      candidate.Score,
+				},
+			)
 		}
 		if _, exists := seenDocuments[candidate.DocumentID]; exists {
 			continue

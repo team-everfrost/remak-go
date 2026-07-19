@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 )
 
@@ -20,7 +21,11 @@ type artifactS3Stub struct {
 	contentType string
 }
 
-func (s artifactS3Stub) GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+func (s artifactS3Stub) GetObject(
+	context.Context,
+	*s3.GetObjectInput,
+	...func(*s3.Options),
+) (*s3.GetObjectOutput, error) {
 	return &s3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(s.body)), ContentType: aws.String(s.contentType)}, nil
 }
 
@@ -31,9 +36,20 @@ func (p imageProviderStub) DescribeImage(context.Context, string, string, []byte
 }
 
 func TestArtifactExtractorImageUsesVisionProvider(t *testing.T) {
-	extractor := NewS3ArtifactExtractor(artifactS3Stub{body: []byte("image"), contentType: "image/png"}, "documents", imageProviderStub{NewHashProvider(1536)})
-	document := dbgen.Document{ID: uuid.New(), Type: dbgen.DocumentTypeIMAGE, Title: pgtype.Text{String: "cat.png", Valid: true}}
-	version := dbgen.DocumentVersion{RawArtifactKey: pgtype.Text{String: "cat", Valid: true}, MediaType: pgtype.Text{String: "image/png", Valid: true}}
+	extractor := NewS3ArtifactExtractor(
+		artifactS3Stub{body: []byte("image"), contentType: "image/png"},
+		"documents",
+		imageProviderStub{NewHashProvider(1536)},
+	)
+	document := dbgen.Document{
+		ID:    uuid.New(),
+		Type:  dbgen.DocumentTypeIMAGE,
+		Title: pgtype.Text{String: "cat.png", Valid: true},
+	}
+	version := dbgen.DocumentVersion{
+		RawArtifactKey: pgtype.Text{String: "cat", Valid: true},
+		MediaType:      pgtype.Text{String: "image/png", Valid: true},
+	}
 	content, method, err := extractor.Extract(context.Background(), document, version)
 	if err != nil {
 		t.Fatal(err)
@@ -54,9 +70,20 @@ func TestExtractPDFReadsPageText(t *testing.T) {
 }
 
 func TestArtifactExtractorRejectsScannedPDFWithoutText(t *testing.T) {
-	extractor := NewS3ArtifactExtractor(artifactS3Stub{body: minimalPDF(""), contentType: "application/pdf"}, "documents", NewHashProvider(1536))
-	document := dbgen.Document{ID: uuid.New(), Type: dbgen.DocumentTypeFILE, Title: pgtype.Text{String: "scan.pdf", Valid: true}}
-	version := dbgen.DocumentVersion{RawArtifactKey: pgtype.Text{String: "scan", Valid: true}, MediaType: pgtype.Text{String: "application/pdf", Valid: true}}
+	extractor := NewS3ArtifactExtractor(
+		artifactS3Stub{body: minimalPDF(""), contentType: "application/pdf"},
+		"documents",
+		NewHashProvider(1536),
+	)
+	document := dbgen.Document{
+		ID:    uuid.New(),
+		Type:  dbgen.DocumentTypeFILE,
+		Title: pgtype.Text{String: "scan.pdf", Valid: true},
+	}
+	version := dbgen.DocumentVersion{
+		RawArtifactKey: pgtype.Text{String: "scan", Valid: true},
+		MediaType:      pgtype.Text{String: "application/pdf", Valid: true},
+	}
 	_, _, err := extractor.Extract(context.Background(), document, version)
 	if err == nil || !strings.Contains(err.Error(), "scanned PDFs require OCR") {
 		t.Fatalf("expected explicit scanned PDF error, got %v", err)
@@ -75,8 +102,13 @@ func minimalPDF(text string) []byte {
 	objects := []string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-		fmt.Sprintf("<< /Length %d >>\nstream\nBT /F1 12 Tf 72 720 Td (%s) Tj ET\nendstream", len("BT /F1 12 Tf 72 720 Td () Tj ET\n")+len(text), text),
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] " +
+			"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+		fmt.Sprintf(
+			"<< /Length %d >>\nstream\nBT /F1 12 Tf 72 720 Td (%s) Tj ET\nendstream",
+			len("BT /F1 12 Tf 72 720 Td () Tj ET\n")+len(text),
+			text,
+		),
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
 	}
 	var output bytes.Buffer

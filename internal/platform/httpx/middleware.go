@@ -61,7 +61,15 @@ func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					logger.Error("http panic", "request_id", RequestIDFromContext(r.Context()), "panic", recovered, "stack", string(debug.Stack()))
+					logger.Error(
+						"http panic",
+						"request_id",
+						RequestIDFromContext(r.Context()),
+						"panic",
+						recovered,
+						"stack",
+						string(debug.Stack()),
+					)
 					WriteError(w, Internal(nil))
 				}
 			}()

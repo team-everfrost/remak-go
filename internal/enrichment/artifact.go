@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/ledongthuc/pdf"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/platform/pgutil"
 )
@@ -43,7 +44,11 @@ func NewS3ArtifactExtractor(client artifactS3, bucket string, provider Provider)
 	return &S3ArtifactExtractor{s3: client, bucket: bucket, provider: provider}
 }
 
-func (e *S3ArtifactExtractor) Extract(ctx context.Context, document dbgen.Document, version dbgen.DocumentVersion) (string, string, error) {
+func (e *S3ArtifactExtractor) Extract(
+	ctx context.Context,
+	document dbgen.Document,
+	version dbgen.DocumentVersion,
+) (string, string, error) {
 	if content := strings.TrimSpace(pgutil.String(version.Content)); content != "" {
 		return content, pgutil.String(version.ExtractionMethod), nil
 	}
@@ -80,8 +85,10 @@ func (e *S3ArtifactExtractor) Extract(ctx context.Context, document dbgen.Docume
 		content, err = describer.DescribeImage(ctx, pgutil.String(document.Title), mediaType, body)
 		method = "ai-vision-ocr"
 	case dbgen.DocumentTypeFILE:
+		isPDF := mediaType == "application/pdf" ||
+			strings.HasSuffix(strings.ToLower(pgutil.String(document.Title)), ".pdf")
 		switch {
-		case mediaType == "application/pdf" || strings.HasSuffix(strings.ToLower(pgutil.String(document.Title)), ".pdf"):
+		case isPDF:
 			content, err = extractPDF(body)
 			method = "go-pdf-text"
 		case strings.HasPrefix(mediaType, "text/") || utf8.Valid(body):

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/platform/idgen"
 	"github.com/team-everfrost/remak-go/internal/platform/pgutil"
@@ -26,8 +27,21 @@ type Processor struct {
 	logger    *slog.Logger
 }
 
-func NewProcessor(pool *pgxpool.Pool, provider Provider, extractor ArtifactExtractor, batchSize int32, logger *slog.Logger) *Processor {
-	return &Processor{pool: pool, queries: dbgen.New(pool), provider: provider, extractor: extractor, batchSize: batchSize, logger: logger}
+func NewProcessor(
+	pool *pgxpool.Pool,
+	provider Provider,
+	extractor ArtifactExtractor,
+	batchSize int32,
+	logger *slog.Logger,
+) *Processor {
+	return &Processor{
+		pool:      pool,
+		queries:   dbgen.New(pool),
+		provider:  provider,
+		extractor: extractor,
+		batchSize: batchSize,
+		logger:    logger,
+	}
 }
 
 func (p *Processor) ProcessBatch(ctx context.Context) (int, error) {
@@ -37,10 +51,31 @@ func (p *Processor) ProcessBatch(ctx context.Context) (int, error) {
 	}
 	for _, job := range jobs {
 		if err := p.process(ctx, job); err != nil {
-			p.logger.Error("enrichment job failed", "job_id", job.ID, "document_id", job.DocumentID, "attempt", job.AttemptCount, "error", err)
+			p.logger.Error(
+				"enrichment job failed",
+				"job_id",
+				job.ID,
+				"document_id",
+				job.DocumentID,
+				"attempt",
+				job.AttemptCount,
+				"error",
+				err,
+			)
 			backoff := int64(1 << minAttempt(job.AttemptCount, 8))
-			_, failErr := p.queries.FailJob(ctx, dbgen.FailJobParams{ID: job.ID, LastErrorCode: pgutil.Text("enrichment_failed"), LastErrorMessage: pgutil.Text(truncate(err.Error(), 1000)), BackoffSeconds: backoff})
-			_, _ = p.queries.RejectEnrichment(ctx, dbgen.RejectEnrichmentParams{ID: job.DocumentID, CurrentVersion: job.DocumentVersion})
+			_, failErr := p.queries.FailJob(
+				ctx,
+				dbgen.FailJobParams{
+					ID:               job.ID,
+					LastErrorCode:    pgutil.Text("enrichment_failed"),
+					LastErrorMessage: pgutil.Text(truncate(err.Error(), 1000)),
+					BackoffSeconds:   backoff,
+				},
+			)
+			_, _ = p.queries.RejectEnrichment(
+				ctx,
+				dbgen.RejectEnrichmentParams{ID: job.DocumentID, CurrentVersion: job.DocumentVersion},
+			)
 			if failErr != nil {
 				return len(jobs), fmt.Errorf("fail enrichment job: %w", failErr)
 			}
@@ -50,7 +85,10 @@ func (p *Processor) ProcessBatch(ctx context.Context) (int, error) {
 }
 
 func (p *Processor) process(ctx context.Context, job dbgen.IngestionJob) error {
-	version, err := p.queries.GetDocumentVersion(ctx, dbgen.GetDocumentVersionParams{DocumentID: job.DocumentID, Version: job.DocumentVersion})
+	version, err := p.queries.GetDocumentVersion(
+		ctx,
+		dbgen.GetDocumentVersionParams{DocumentID: job.DocumentID, Version: job.DocumentVersion},
+	)
 	if err != nil {
 		return fmt.Errorf("get document version: %w", err)
 	}
@@ -98,7 +136,10 @@ func (p *Processor) process(ctx context.Context, job dbgen.IngestionJob) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := p.queries.WithTx(tx)
-	_, _ = queries.MarkDocumentEnrichProcessing(ctx, dbgen.MarkDocumentEnrichProcessingParams{ID: document.ID, CurrentVersion: job.DocumentVersion})
+	_, _ = queries.MarkDocumentEnrichProcessing(
+		ctx,
+		dbgen.MarkDocumentEnrichProcessingParams{ID: document.ID, CurrentVersion: job.DocumentVersion},
+	)
 	if !version.Content.Valid || version.Content.String != content {
 		digest := sha256.Sum256([]byte(content))
 		if affected, saveErr := queries.SaveExtractedContent(ctx, dbgen.SaveExtractedContentParams{
@@ -110,11 +151,24 @@ func (p *Processor) process(ctx context.Context, job dbgen.IngestionJob) error {
 			return fmt.Errorf("save extracted content: affected=%d", affected)
 		}
 	}
-	if err := queries.ReplaceChunks(ctx, dbgen.ReplaceChunksParams{DocumentID: document.ID, DocumentVersion: job.DocumentVersion}); err != nil {
+	replaceParams := dbgen.ReplaceChunksParams{
+		DocumentID:      document.ID,
+		DocumentVersion: job.DocumentVersion,
+	}
+	if err := queries.ReplaceChunks(ctx, replaceParams); err != nil {
 		return fmt.Errorf("replace chunks: %w", err)
 	}
 	for index, chunk := range chunks {
-		if err := queries.CreateChunk(ctx, dbgen.CreateChunkParams{ID: idgen.New(), DocumentID: document.ID, DocumentVersion: job.DocumentVersion, ChunkIndex: int32(index), Content: chunk, EmbeddingModel: p.provider.Name(), Embedding: pgvector.NewVector(embeddings[index])}); err != nil {
+		params := dbgen.CreateChunkParams{
+			ID:              idgen.New(),
+			DocumentID:      document.ID,
+			DocumentVersion: job.DocumentVersion,
+			ChunkIndex:      int32(index),
+			Content:         chunk,
+			EmbeddingModel:  p.provider.Name(),
+			Embedding:       pgvector.NewVector(embeddings[index]),
+		}
+		if err := queries.CreateChunk(ctx, params); err != nil {
 			return fmt.Errorf("create chunk %d: %w", index, err)
 		}
 	}
@@ -122,23 +176,41 @@ func (p *Processor) process(ctx context.Context, job dbgen.IngestionJob) error {
 		return fmt.Errorf("replace document tags: %w", err)
 	}
 	for _, name := range analysis.Tags {
-		tag, createErr := queries.CreateTag(ctx, dbgen.CreateTagParams{ID: idgen.New(), OwnerID: document.OwnerID, Name: name})
+		tag, createErr := queries.CreateTag(
+			ctx,
+			dbgen.CreateTagParams{ID: idgen.New(), OwnerID: document.OwnerID, Name: name},
+		)
 		if createErr != nil {
 			return fmt.Errorf("create suggested tag: %w", createErr)
 		}
-		if addErr := queries.AddTagToDocument(ctx, dbgen.AddTagToDocumentParams{DocumentID: document.ID, TagID: tag.ID, OwnerID: document.OwnerID}); addErr != nil {
+		params := dbgen.AddTagToDocumentParams{
+			DocumentID: document.ID,
+			TagID:      tag.ID,
+			OwnerID:    document.OwnerID,
+		}
+		if addErr := queries.AddTagToDocument(ctx, params); addErr != nil {
 			return fmt.Errorf("attach suggested tag: %w", addErr)
 		}
 	}
 	if err := queries.DeleteUnusedTags(ctx, document.OwnerID); err != nil {
 		return fmt.Errorf("delete unused tags: %w", err)
 	}
-	if affected, err := queries.CompleteEnrichedVersion(ctx, dbgen.CompleteEnrichedVersionParams{DocumentID: document.ID, Version: job.DocumentVersion, Summary: pgutil.Text(analysis.Summary)}); err != nil {
+	versionParams := dbgen.CompleteEnrichedVersionParams{
+		DocumentID: document.ID,
+		Version:    job.DocumentVersion,
+		Summary:    pgutil.Text(analysis.Summary),
+	}
+	if affected, err := queries.CompleteEnrichedVersion(ctx, versionParams); err != nil {
 		return fmt.Errorf("complete enriched version: %w", err)
 	} else if affected != 1 {
 		return fmt.Errorf("complete enriched version: affected=%d", affected)
 	}
-	if affected, err := queries.CompleteEnrichment(ctx, dbgen.CompleteEnrichmentParams{ID: document.ID, CurrentVersion: job.DocumentVersion, Summary: pgutil.Text(analysis.Summary)}); err != nil {
+	documentParams := dbgen.CompleteEnrichmentParams{
+		ID:             document.ID,
+		CurrentVersion: job.DocumentVersion,
+		Summary:        pgutil.Text(analysis.Summary),
+	}
+	if affected, err := queries.CompleteEnrichment(ctx, documentParams); err != nil {
 		return fmt.Errorf("complete enrichment: %w", err)
 	} else if affected != 1 {
 		return fmt.Errorf("complete enrichment: affected=%d", affected)

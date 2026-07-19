@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
 	"github.com/team-everfrost/remak-go/internal/platform/httpx"
 	"github.com/team-everfrost/remak-go/internal/retrieval"
 )
@@ -120,7 +121,13 @@ func (h *Handler) updateWebpage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	result, err := h.service.UpdateWebpage(r.Context(), actorID(r), documentID, httpx.RequestIDFromContext(r.Context()), input)
+	result, err := h.service.UpdateWebpage(
+		r.Context(),
+		actorID(r),
+		documentID,
+		httpx.RequestIDFromContext(r.Context()),
+		input,
+	)
 	writeResult(w, http.StatusOK, result, err)
 }
 
@@ -176,12 +183,23 @@ func (h *Handler) searchByCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) searchText(w http.ResponseWriter, r *http.Request) {
-	result, err := h.service.SearchText(r.Context(), actorID(r), r.URL.Query().Get("query"), queryInt32(r, "limit", 20), queryInt32(r, "offset", 0))
+	result, err := h.service.SearchText(
+		r.Context(),
+		actorID(r),
+		r.URL.Query().Get("query"),
+		queryInt32(r, "limit", 20),
+		queryInt32(r, "offset", 0),
+	)
 	writeResult(w, http.StatusOK, result, err)
 }
 
 func (h *Handler) searchHybrid(w http.ResponseWriter, r *http.Request) {
-	result, err := h.retrieval.Search(r.Context(), actorID(r), r.URL.Query().Get("query"), int(queryInt32(r, "limit", 20)))
+	result, err := h.retrieval.Search(
+		r.Context(),
+		actorID(r),
+		r.URL.Query().Get("query"),
+		int(queryInt32(r, "limit", 20)),
+	)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -191,12 +209,23 @@ func (h *Handler) searchHybrid(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listTags(w http.ResponseWriter, r *http.Request) {
-	result, err := h.service.ListTags(r.Context(), actorID(r), r.URL.Query().Get("query"), queryInt32(r, "limit", 20), queryInt32(r, "offset", 0))
+	result, err := h.service.ListTags(
+		r.Context(),
+		actorID(r),
+		r.URL.Query().Get("query"),
+		queryInt32(r, "limit", 20),
+		queryInt32(r, "offset", 0),
+	)
 	writeResult(w, http.StatusOK, result, err)
 }
 
 func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
-	result, err := h.service.ListCollections(r.Context(), actorID(r), queryInt32(r, "limit", 20), queryInt32(r, "offset", 0))
+	result, err := h.service.ListCollections(
+		r.Context(),
+		actorID(r),
+		queryInt32(r, "limit", 20),
+		queryInt32(r, "offset", 0),
+	)
 	writeResult(w, http.StatusOK, result, err)
 }
 
@@ -221,7 +250,10 @@ func (h *Handler) addDocumentsToCollection(w http.ResponseWriter, r *http.Reques
 		httpx.WriteError(w, err)
 		return
 	}
-	if err := h.service.AddDocumentsToCollection(r.Context(), actorID(r), chi.URLParam(r, "name"), input.DocIDs); err != nil {
+	err := h.service.AddDocumentsToCollection(
+		r.Context(), actorID(r), chi.URLParam(r, "name"), input.DocIDs,
+	)
+	if err != nil {
 		httpx.WriteError(w, err)
 		return
 	}

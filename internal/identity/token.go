@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
 	"github.com/team-everfrost/remak-go/internal/platform/httpx"
 )
 
@@ -107,7 +108,8 @@ func (m *TokenManager) VerifyVerificationToken(raw, expectedEmail, expectedPurpo
 		}
 		return m.secret, nil
 	}, jwt.WithIssuer(m.issuer), jwt.WithExpirationRequired())
-	if err != nil || !token.Valid || claims.Type != "verification" || claims.Email != expectedEmail || claims.Purpose != expectedPurpose {
+	if err != nil || !token.Valid || claims.Type != "verification" || claims.Email != expectedEmail ||
+		claims.Purpose != expectedPurpose {
 		return uuid.Nil, errors.New("invalid verification token")
 	}
 	return uuid.Parse(claims.ChallengeID)

@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/library"
 	"github.com/team-everfrost/remak-go/internal/platform/httpx"
@@ -60,7 +61,14 @@ type uploadedFile struct {
 }
 
 func NewService(pool *pgxpool.Pool, client *s3.Client, bucket string, maxRequestBytes int64) *Service {
-	return &Service{pool: pool, queries: dbgen.New(pool), s3: client, presign: s3.NewPresignClient(client), bucket: bucket, maxRequestBytes: maxRequestBytes}
+	return &Service{
+		pool:            pool,
+		queries:         dbgen.New(pool),
+		s3:              client,
+		presign:         s3.NewPresignClient(client),
+		bucket:          bucket,
+		maxRequestBytes: maxRequestBytes,
+	}
 }
 
 func (s *Service) Upload(w http.ResponseWriter, r *http.Request, ownerID uuid.UUID) ([]library.Document, error) {
@@ -92,7 +100,11 @@ func (s *Service) Upload(w http.ResponseWriter, r *http.Request, ownerID uuid.UU
 	return result, nil
 }
 
-func (s *Service) uploadOne(ctx context.Context, ownerID uuid.UUID, header *multipart.FileHeader) (uploadedFile, error) {
+func (s *Service) uploadOne(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	header *multipart.FileHeader,
+) (uploadedFile, error) {
 	if header.Size <= 0 || header.Size > maxFileBytes {
 		return uploadedFile{}, httpx.BadRequest("invalid_file_size", "파일 하나의 크기는 10MB 이하여야 합니다")
 	}
@@ -131,10 +143,25 @@ func (s *Service) uploadOne(ctx context.Context, ownerID uuid.UUID, header *mult
 	}
 	documentID := idgen.New()
 	objectKey := fmt.Sprintf("accounts/%s/documents/%s/original", ownerID, documentID)
-	if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(objectKey), Body: file, ContentLength: aws.Int64(header.Size), ContentType: aws.String(mediaType)}); err != nil {
+	putInput := &s3.PutObjectInput{
+		Bucket:        aws.String(s.bucket),
+		Key:           aws.String(objectKey),
+		Body:          file,
+		ContentLength: aws.Int64(header.Size),
+		ContentType:   aws.String(mediaType),
+	}
+	if _, err := s.s3.PutObject(ctx, putInput); err != nil {
 		return uploadedFile{}, httpx.Internal(fmt.Errorf("store file: %w", err))
 	}
-	return uploadedFile{documentID: documentID, name: name, objectKey: objectKey, mediaType: mediaType, size: header.Size, content: content, typeName: typeName}, nil
+	return uploadedFile{
+		documentID: documentID,
+		name:       name,
+		objectKey:  objectKey,
+		mediaType:  mediaType,
+		size:       header.Size,
+		content:    content,
+		typeName:   typeName,
+	}, nil
 }
 
 func (s *Service) persist(ctx context.Context, ownerID uuid.UUID, files []uploadedFile) ([]library.Document, error) {
@@ -165,19 +192,52 @@ func (s *Service) persist(ctx context.Context, ownerID uuid.UUID, files []upload
 	result := make([]library.Document, 0, len(files))
 	for _, file := range files {
 		status := dbgen.DocumentStatusENRICHPENDING
-		row, err := queries.CreateFileDocument(ctx, dbgen.CreateFileDocumentParams{ID: file.documentID, OwnerID: ownerID, Title: pgutil.Text(file.name), Type: file.typeName, Content: pgutil.Text(file.content), Status: status, FileSize: file.size})
+		row, err := queries.CreateFileDocument(
+			ctx,
+			dbgen.CreateFileDocumentParams{
+				ID:       file.documentID,
+				OwnerID:  ownerID,
+				Title:    pgutil.Text(file.name),
+				Type:     file.typeName,
+				Content:  pgutil.Text(file.content),
+				Status:   status,
+				FileSize: file.size,
+			},
+		)
 		if err != nil {
 			return nil, httpx.Internal(fmt.Errorf("create file document: %w", err))
 		}
-		if _, err := queries.CreateDocumentVersion(ctx, dbgen.CreateDocumentVersionParams{ID: idgen.New(), DocumentID: row.ID, Version: 1, Title: row.Title, Content: row.Content, MediaType: pgutil.Text(file.mediaType)}); err != nil {
+		versionParams := dbgen.CreateDocumentVersionParams{
+			ID:         idgen.New(),
+			DocumentID: row.ID,
+			Version:    1,
+			Title:      row.Title,
+			Content:    row.Content,
+			MediaType:  pgutil.Text(file.mediaType),
+		}
+		if _, err := queries.CreateDocumentVersion(ctx, versionParams); err != nil {
 			return nil, httpx.Internal(err)
 		}
-		if affected, err := queries.CompleteDocumentVersion(ctx, dbgen.CompleteDocumentVersionParams{DocumentID: row.ID, Version: 1, RawArtifactKey: pgutil.Text(file.objectKey), Title: row.Title, Content: row.Content, ExtractionMethod: pgutil.Text("direct-upload")}); err != nil {
+		completeParams := dbgen.CompleteDocumentVersionParams{
+			DocumentID:       row.ID,
+			Version:          1,
+			RawArtifactKey:   pgutil.Text(file.objectKey),
+			Title:            row.Title,
+			Content:          row.Content,
+			ExtractionMethod: pgutil.Text("direct-upload"),
+		}
+		if affected, err := queries.CompleteDocumentVersion(ctx, completeParams); err != nil {
 			return nil, httpx.Internal(fmt.Errorf("attach file artifact: %w", err))
 		} else if affected != 1 {
 			return nil, httpx.Internal(fmt.Errorf("attach file artifact: affected=%d", affected))
 		}
-		if _, err := queries.CreateIngestionJob(ctx, dbgen.CreateIngestionJobParams{ID: idgen.New(), DocumentID: row.ID, DocumentVersion: 1, Type: dbgen.IngestionJobTypeENRICH}); err != nil {
+		jobParams := dbgen.CreateIngestionJobParams{
+			ID:              idgen.New(),
+			DocumentID:      row.ID,
+			DocumentVersion: 1,
+			Type:            dbgen.IngestionJobTypeENRICH,
+		}
+		if _, err := queries.CreateIngestionJob(ctx, jobParams); err != nil {
 			return nil, httpx.Internal(err)
 		}
 		result = append(result, library.DocumentFromRow(row))
@@ -189,7 +249,10 @@ func (s *Service) persist(ctx context.Context, ownerID uuid.UUID, files []upload
 }
 
 func (s *Service) DownloadURL(ctx context.Context, ownerID, documentID uuid.UUID) (string, error) {
-	version, err := s.queries.GetOwnedCurrentDocumentVersion(ctx, dbgen.GetOwnedCurrentDocumentVersionParams{ID: documentID, OwnerID: ownerID})
+	version, err := s.queries.GetOwnedCurrentDocumentVersion(
+		ctx,
+		dbgen.GetOwnedCurrentDocumentVersionParams{ID: documentID, OwnerID: ownerID},
+	)
 	if errors.Is(err, pgx.ErrNoRows) || !version.RawArtifactKey.Valid {
 		return "", httpx.NotFound("file_not_found", "파일을 찾을 수 없습니다")
 	}
@@ -201,7 +264,15 @@ func (s *Service) DownloadURL(ctx context.Context, ownerID, documentID uuid.UUID
 		return "", httpx.NotFound("file_not_found", "파일을 찾을 수 없습니다")
 	}
 	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": pgutil.String(document.Title)})
-	presigned, err := s.presign.PresignGetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(version.RawArtifactKey.String), ResponseContentDisposition: aws.String(disposition)}, s3.WithPresignExpires(10*time.Minute))
+	presigned, err := s.presign.PresignGetObject(
+		ctx,
+		&s3.GetObjectInput{
+			Bucket:                     aws.String(s.bucket),
+			Key:                        aws.String(version.RawArtifactKey.String),
+			ResponseContentDisposition: aws.String(disposition),
+		},
+		s3.WithPresignExpires(10*time.Minute),
+	)
 	if err != nil {
 		return "", httpx.Internal(fmt.Errorf("presign file: %w", err))
 	}
@@ -212,7 +283,10 @@ func (s *Service) compensate(files []uploadedFile) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for _, file := range files {
-		_, _ = s.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(file.objectKey)})
+		_, _ = s.s3.DeleteObject(
+			ctx,
+			&s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(file.objectKey)},
+		)
 	}
 }
 

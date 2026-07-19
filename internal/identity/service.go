@@ -17,11 +17,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/platform/httpx"
 	"github.com/team-everfrost/remak-go/internal/platform/idgen"
 	"github.com/team-everfrost/remak-go/internal/platform/pgutil"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -45,7 +46,13 @@ type Service struct {
 	exposeDebugCodes bool
 }
 
-func NewService(pool *pgxpool.Pool, tokens *TokenManager, sender CodeSender, challengeSecret string, exposeDebugCodes bool) *Service {
+func NewService(
+	pool *pgxpool.Pool,
+	tokens *TokenManager,
+	sender CodeSender,
+	challengeSecret string,
+	exposeDebugCodes bool,
+) *Service {
 	return &Service{
 		pool:             pool,
 		queries:          dbgen.New(pool),
@@ -104,7 +111,12 @@ func (s *Service) ResetPassword(ctx context.Context, input CompleteChallengeInpu
 	if err := validatePassword(input.Password, input.VerificationToken == ""); err != nil {
 		return err
 	}
-	challengeID, err := s.resolveVerifiedChallenge(ctx, input.VerificationToken, email, dbgen.ChallengePurposePASSWORDRESET)
+	challengeID, err := s.resolveVerifiedChallenge(
+		ctx,
+		input.VerificationToken,
+		email,
+		dbgen.ChallengePurposePASSWORDRESET,
+	)
 	if err != nil {
 		return err
 	}
@@ -125,7 +137,11 @@ func (s *Service) ResetPassword(ctx context.Context, input CompleteChallengeInpu
 	if affected, err := queries.ConsumeChallenge(ctx, challengeID); err != nil || affected != 1 {
 		return httpx.Conflict("verification_already_used", "이미 사용했거나 만료된 인증입니다")
 	}
-	if err := queries.UpdatePassword(ctx, dbgen.UpdatePasswordParams{ID: account.ID, PasswordHash: pgutil.Text(string(hash))}); err != nil {
+	params := dbgen.UpdatePasswordParams{
+		ID:           account.ID,
+		PasswordHash: pgutil.Text(string(hash)),
+	}
+	if err := queries.UpdatePassword(ctx, params); err != nil {
 		return httpx.Internal(fmt.Errorf("update password: %w", err))
 	}
 	if err := queries.RevokeAllRefreshTokens(ctx, account.ID); err != nil {
@@ -145,7 +161,11 @@ func (s *Service) RequestWithdrawCode(ctx context.Context, accountID uuid.UUID) 
 	return s.requestCode(ctx, account.Email, dbgen.ChallengePurposeWITHDRAW)
 }
 
-func (s *Service) VerifyWithdrawCode(ctx context.Context, accountID uuid.UUID, codeInput VerifyCodeInput) (VerificationResult, error) {
+func (s *Service) VerifyWithdrawCode(
+	ctx context.Context,
+	accountID uuid.UUID,
+	codeInput VerifyCodeInput,
+) (VerificationResult, error) {
 	account, err := s.queries.GetAccountByID(ctx, accountID)
 	if err != nil {
 		return VerificationResult{}, httpx.NotFound("account_not_found", "계정을 찾을 수 없습니다")
@@ -159,7 +179,12 @@ func (s *Service) Withdraw(ctx context.Context, accountID uuid.UUID, verificatio
 	if err != nil {
 		return httpx.NotFound("account_not_found", "계정을 찾을 수 없습니다")
 	}
-	challengeID, err := s.resolveVerifiedChallenge(ctx, verificationToken, account.Email, dbgen.ChallengePurposeWITHDRAW)
+	challengeID, err := s.resolveVerifiedChallenge(
+		ctx,
+		verificationToken,
+		account.Email,
+		dbgen.ChallengePurposeWITHDRAW,
+	)
 	if err != nil {
 		return err
 	}
@@ -250,7 +275,8 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (TokenPair, error
 		return TokenPair{}, httpx.Unauthorized("invalid_credentials", "이메일 또는 비밀번호가 올바르지 않습니다")
 	}
 	account, err := s.queries.GetAccountByEmail(ctx, email)
-	if err != nil || !account.PasswordHash.Valid || bcrypt.CompareHashAndPassword([]byte(account.PasswordHash.String), []byte(input.Password)) != nil {
+	if err != nil || !account.PasswordHash.Valid ||
+		bcrypt.CompareHashAndPassword([]byte(account.PasswordHash.String), []byte(input.Password)) != nil {
 		return TokenPair{}, httpx.Unauthorized("invalid_credentials", "이메일 또는 비밀번호가 올바르지 않습니다")
 	}
 	return s.issueTokenPair(ctx, s.queries, account)
@@ -292,7 +318,11 @@ func (s *Service) Logout(ctx context.Context, rawRefreshToken string) error {
 	return s.queries.RevokeRefreshToken(ctx, RefreshTokenHash(rawRefreshToken))
 }
 
-func (s *Service) issueTokenPair(ctx context.Context, queries *dbgen.Queries, account dbgen.Account) (TokenPair, error) {
+func (s *Service) issueTokenPair(
+	ctx context.Context,
+	queries *dbgen.Queries,
+	account dbgen.Account,
+) (TokenPair, error) {
 	access, err := s.tokens.CreateAccessToken(account.ID, compatibilityRole(account))
 	if err != nil {
 		return TokenPair{}, httpx.Internal(fmt.Errorf("create access token: %w", err))
@@ -327,13 +357,24 @@ func compatibilityRole(account dbgen.Account) string {
 	return "BASIC"
 }
 
-func (s *Service) requestCode(ctx context.Context, email string, purpose dbgen.ChallengePurpose) (VerificationChallenge, error) {
-	count, err := s.queries.CountRecentChallenges(ctx, dbgen.CountRecentChallengesParams{Email: email, Purpose: purpose})
+func (s *Service) requestCode(
+	ctx context.Context,
+	email string,
+	purpose dbgen.ChallengePurpose,
+) (VerificationChallenge, error) {
+	count, err := s.queries.CountRecentChallenges(
+		ctx,
+		dbgen.CountRecentChallengesParams{Email: email, Purpose: purpose},
+	)
 	if err != nil {
 		return VerificationChallenge{}, httpx.Internal(fmt.Errorf("count recent challenges: %w", err))
 	}
 	if count >= challengeHourlyLimit {
-		return VerificationChallenge{}, &httpx.Error{Status: 429, Code: "verification_rate_limited", Message: "인증 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요"}
+		return VerificationChallenge{}, &httpx.Error{
+			Status:  429,
+			Code:    "verification_rate_limited",
+			Message: "인증 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요",
+		}
 	}
 	challengeID := idgen.New()
 	code, err := randomCode()
@@ -361,7 +402,11 @@ func (s *Service) requestCode(ctx context.Context, email string, purpose dbgen.C
 	return result, nil
 }
 
-func (s *Service) verifyCode(ctx context.Context, input VerifyCodeInput, purpose dbgen.ChallengePurpose) (VerificationResult, error) {
+func (s *Service) verifyCode(
+	ctx context.Context,
+	input VerifyCodeInput,
+	purpose dbgen.ChallengePurpose,
+) (VerificationResult, error) {
 	email, err := normalizeEmail(input.Email)
 	if err != nil || len(input.Code) != 6 {
 		return VerificationResult{}, httpx.BadRequest("invalid_verification_code", "인증 코드가 올바르지 않습니다")
@@ -377,7 +422,8 @@ func (s *Service) verifyCode(ctx context.Context, input VerifyCodeInput, purpose
 	if err != nil {
 		return VerificationResult{}, httpx.Internal(fmt.Errorf("increment challenge attempt: %w", err))
 	}
-	if challenge.Email != email || challenge.Purpose != purpose || !hmac.Equal([]byte(challenge.CodeHash), []byte(s.hashCode(challengeID, input.Code))) {
+	if challenge.Email != email || challenge.Purpose != purpose ||
+		!hmac.Equal([]byte(challenge.CodeHash), []byte(s.hashCode(challengeID, input.Code))) {
 		return VerificationResult{}, httpx.BadRequest("invalid_verification_code", "인증 코드가 올바르지 않습니다")
 	}
 	if affected, err := s.queries.MarkChallengeVerified(ctx, challengeID); err != nil || affected != 1 {
@@ -393,7 +439,11 @@ func (s *Service) verifyCode(ctx context.Context, input VerifyCodeInput, purpose
 	return VerificationResult{VerificationToken: token}, nil
 }
 
-func (s *Service) resolveOpenChallenge(ctx context.Context, rawID, email string, purpose dbgen.ChallengePurpose) (uuid.UUID, error) {
+func (s *Service) resolveOpenChallenge(
+	ctx context.Context,
+	rawID, email string,
+	purpose dbgen.ChallengePurpose,
+) (uuid.UUID, error) {
 	if rawID != "" {
 		challengeID, err := uuid.Parse(rawID)
 		if err != nil {
@@ -401,7 +451,10 @@ func (s *Service) resolveOpenChallenge(ctx context.Context, rawID, email string,
 		}
 		return challengeID, nil
 	}
-	challenge, err := s.queries.GetLatestOpenChallenge(ctx, dbgen.GetLatestOpenChallengeParams{Email: email, Purpose: purpose})
+	challenge, err := s.queries.GetLatestOpenChallenge(
+		ctx,
+		dbgen.GetLatestOpenChallengeParams{Email: email, Purpose: purpose},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, httpx.BadRequest("expired_or_locked_challenge", "인증 요청이 만료되었거나 잠겼습니다")
 	}
@@ -411,7 +464,11 @@ func (s *Service) resolveOpenChallenge(ctx context.Context, rawID, email string,
 	return challenge.ID, nil
 }
 
-func (s *Service) resolveVerifiedChallenge(ctx context.Context, token, email string, purpose dbgen.ChallengePurpose) (uuid.UUID, error) {
+func (s *Service) resolveVerifiedChallenge(
+	ctx context.Context,
+	token, email string,
+	purpose dbgen.ChallengePurpose,
+) (uuid.UUID, error) {
 	if token != "" {
 		challengeID, err := s.tokens.VerifyVerificationToken(token, email, string(purpose))
 		if err != nil {
@@ -421,7 +478,10 @@ func (s *Service) resolveVerifiedChallenge(ctx context.Context, token, email str
 	}
 	// Compatibility path for the 2023 frontend, which did not retain the token
 	// returned by the verification endpoint. Remove after clients migrate.
-	challenge, err := s.queries.GetLatestVerifiedChallenge(ctx, dbgen.GetLatestVerifiedChallengeParams{Email: email, Purpose: purpose})
+	challenge, err := s.queries.GetLatestVerifiedChallenge(
+		ctx,
+		dbgen.GetLatestVerifiedChallengeParams{Email: email, Purpose: purpose},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, httpx.Unauthorized("invalid_verification_token", "이메일 인증 정보가 올바르지 않습니다")
 	}

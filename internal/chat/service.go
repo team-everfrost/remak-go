@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
 	"github.com/team-everfrost/remak-go/internal/enrichment"
 	"github.com/team-everfrost/remak-go/internal/library"
 	"github.com/team-everfrost/remak-go/internal/platform/httpx"
@@ -18,7 +19,11 @@ type Service struct {
 	provider  enrichment.Provider
 }
 
-func NewService(retrievalService *retrieval.Service, libraryService *library.Service, provider enrichment.Provider) *Service {
+func NewService(
+	retrievalService *retrieval.Service,
+	libraryService *library.Service,
+	provider enrichment.Provider,
+) *Service {
 	return &Service{retrieval: retrievalService, library: libraryService, provider: provider}
 }
 

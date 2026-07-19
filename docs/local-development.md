@@ -9,6 +9,19 @@
 
 Node/Chromium scraper까지 실제로 돌릴 때는 Node 24와 `scraping-lambda`가 추가로 필요합니다. PostgreSQL, pgvector, S3, SQS는 호스트에 직접 설치하지 않습니다.
 
+## Go 코드 스타일
+
+Go 원본 코드는 120자를 목표 최대 줄 길이로 사용합니다. `gofmt`, `goimports`, `golines`를 golangci-lint v2 formatter로 함께 실행하며 sqlc 생성물은 대상에서 제외합니다. 긴 함수 호출, parameter, struct literal은 여러 줄로 나누고 prompt는 multiline 상수로 둡니다. 불가피한 URL이나 생성 문자열 외에는 120자를 넘기지 않습니다.
+
+```sh
+make tools
+make fmt        # 자동 수정
+make fmt-check  # 수정 없이 diff 검사
+make lint       # lll을 포함해 120자 초과 재발 방지
+```
+
+CI는 formatter diff와 `lll`을 모두 검사하므로 formatter를 실행하지 않은 변경은 merge할 수 없습니다.
+
 ## 시작
 
 ```sh

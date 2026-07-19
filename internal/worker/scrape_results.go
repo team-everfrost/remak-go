@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/events"
 	"github.com/team-everfrost/remak-go/internal/platform/idgen"
@@ -25,8 +26,16 @@ import (
 const maxScrapedContentBytes = 16 << 20
 
 type sqsReceiver interface {
-	ReceiveMessage(ctx context.Context, params *sqs.ReceiveMessageInput, optFns ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error)
-	DeleteMessage(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error)
+	ReceiveMessage(
+		ctx context.Context,
+		params *sqs.ReceiveMessageInput,
+		optFns ...func(*sqs.Options),
+	) (*sqs.ReceiveMessageOutput, error)
+	DeleteMessage(
+		ctx context.Context,
+		params *sqs.DeleteMessageInput,
+		optFns ...func(*sqs.Options),
+	) (*sqs.DeleteMessageOutput, error)
 }
 
 type s3Reader interface {
@@ -44,8 +53,24 @@ type ScrapeResultConsumer struct {
 	logger   *slog.Logger
 }
 
-func NewScrapeResultConsumer(pool *pgxpool.Pool, sqsClient sqsReceiver, s3Client s3Reader, queueURL, bucket string, wait time.Duration, logger *slog.Logger) *ScrapeResultConsumer {
-	return &ScrapeResultConsumer{pool: pool, queries: dbgen.New(pool), sqs: sqsClient, s3: s3Client, queueURL: queueURL, bucket: bucket, wait: wait, logger: logger}
+func NewScrapeResultConsumer(
+	pool *pgxpool.Pool,
+	sqsClient sqsReceiver,
+	s3Client s3Reader,
+	queueURL, bucket string,
+	wait time.Duration,
+	logger *slog.Logger,
+) *ScrapeResultConsumer {
+	return &ScrapeResultConsumer{
+		pool:     pool,
+		queries:  dbgen.New(pool),
+		sqs:      sqsClient,
+		s3:       s3Client,
+		queueURL: queueURL,
+		bucket:   bucket,
+		wait:     wait,
+		logger:   logger,
+	}
 }
 
 func (c *ScrapeResultConsumer) Poll(ctx context.Context) error {
@@ -56,7 +81,14 @@ func (c *ScrapeResultConsumer) Poll(ctx context.Context) error {
 	if waitSeconds > 20 {
 		waitSeconds = 20
 	}
-	output, err := c.sqs.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(c.queueURL), MaxNumberOfMessages: 5, WaitTimeSeconds: waitSeconds})
+	output, err := c.sqs.ReceiveMessage(
+		ctx,
+		&sqs.ReceiveMessageInput{
+			QueueUrl:            aws.String(c.queueURL),
+			MaxNumberOfMessages: 5,
+			WaitTimeSeconds:     waitSeconds,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("receive scrape results: %w", err)
 	}
@@ -65,7 +97,11 @@ func (c *ScrapeResultConsumer) Poll(ctx context.Context) error {
 			c.logger.Error("scrape result failed", "message_id", aws.ToString(message.MessageId), "error", err)
 			continue
 		}
-		if _, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(c.queueURL), ReceiptHandle: message.ReceiptHandle}); err != nil {
+		deleteInput := &sqs.DeleteMessageInput{
+			QueueUrl:      aws.String(c.queueURL),
+			ReceiptHandle: message.ReceiptHandle,
+		}
+		if _, err := c.sqs.DeleteMessage(ctx, deleteInput); err != nil {
 			c.logger.Error("delete scrape result failed", "message_id", aws.ToString(message.MessageId), "error", err)
 		}
 	}
@@ -93,7 +129,9 @@ func (c *ScrapeResultConsumer) processMessage(ctx context.Context, message types
 	if err := json.Unmarshal([]byte(*message.Body), &event); err != nil {
 		return fmt.Errorf("decode scrape result: %w", err)
 	}
-	if event.SchemaVersion != events.SchemaVersionV1 || event.EventID == uuid.Nil || event.Data.JobID == uuid.Nil || event.Data.DocumentID == uuid.Nil || event.Data.DocumentVersion <= 0 {
+	if event.SchemaVersion != events.SchemaVersionV1 || event.EventID == uuid.Nil || event.Data.JobID == uuid.Nil ||
+		event.Data.DocumentID == uuid.Nil ||
+		event.Data.DocumentVersion <= 0 {
 		return fmt.Errorf("invalid scrape result envelope")
 	}
 	if event.EventType != events.ScrapeCompleted && event.EventType != events.ScrapeFailed {
@@ -110,7 +148,8 @@ func (c *ScrapeResultConsumer) processMessage(ctx context.Context, message types
 	if err != nil {
 		return fmt.Errorf("get scrape job: %w", err)
 	}
-	if job.Type != dbgen.IngestionJobTypeSCRAPE || job.DocumentID != event.Data.DocumentID || job.DocumentVersion != event.Data.DocumentVersion {
+	if job.Type != dbgen.IngestionJobTypeSCRAPE || job.DocumentID != event.Data.DocumentID ||
+		job.DocumentVersion != event.Data.DocumentVersion {
 		return fmt.Errorf("scrape result does not match job")
 	}
 	document, err := c.queries.GetDocumentByID(ctx, event.Data.DocumentID)
@@ -124,7 +163,14 @@ func (c *ScrapeResultConsumer) processMessage(ctx context.Context, message types
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := c.queries.WithTx(tx)
-	if _, err := queries.RegisterInboxEvent(ctx, dbgen.RegisterInboxEventParams{EventID: event.EventID.String(), EventType: event.EventType}); errors.Is(err, pgx.ErrNoRows) {
+	inboxParams := dbgen.RegisterInboxEventParams{
+		EventID:   event.EventID.String(),
+		EventType: event.EventType,
+	}
+	if _, err := queries.RegisterInboxEvent(ctx, inboxParams); errors.Is(
+		err,
+		pgx.ErrNoRows,
+	) {
 		return tx.Commit(ctx)
 	} else if err != nil {
 		return fmt.Errorf("register inbox event: %w", err)
@@ -140,29 +186,65 @@ func (c *ScrapeResultConsumer) processMessage(ctx context.Context, message types
 	}
 	if event.EventType == events.ScrapeFailed {
 		if current {
-			_, _ = queries.RejectScrape(ctx, dbgen.RejectScrapeParams{ID: event.Data.DocumentID, CurrentVersion: event.Data.DocumentVersion})
+			_, _ = queries.RejectScrape(
+				ctx,
+				dbgen.RejectScrapeParams{ID: event.Data.DocumentID, CurrentVersion: event.Data.DocumentVersion},
+			)
 		}
-		_, err = queries.FailJob(ctx, dbgen.FailJobParams{ID: job.ID, LastErrorCode: pgutil.Text(event.Data.ErrorCode), LastErrorMessage: pgutil.Text(truncateError(errors.New(event.Data.ErrorMessage), 1000)), BackoffSeconds: 0})
+		_, err = queries.FailJob(
+			ctx,
+			dbgen.FailJobParams{
+				ID:               job.ID,
+				LastErrorCode:    pgutil.Text(event.Data.ErrorCode),
+				LastErrorMessage: pgutil.Text(truncateError(errors.New(event.Data.ErrorMessage), 1000)),
+				BackoffSeconds:   0,
+			},
+		)
 	} else {
 		if event.Data.Content == "" {
 			return fmt.Errorf("successful scrape result has no content")
 		}
-		if affected, completeErr := queries.CompleteDocumentVersion(ctx, dbgen.CompleteDocumentVersionParams{DocumentID: event.Data.DocumentID, Version: event.Data.DocumentVersion, RawArtifactKey: pgutil.Text(event.Data.RawArtifactKey), ContentArtifactKey: pgutil.Text(event.Data.ContentArtifactKey), ContentHash: pgutil.Text(event.Data.ContentHash), Title: pgutil.Text(event.Data.Title), Content: pgutil.Text(event.Data.Content), ExtractionMethod: pgutil.Text(event.Data.ExtractionMethod)}); completeErr != nil {
+		versionParams := dbgen.CompleteDocumentVersionParams{
+			DocumentID:         event.Data.DocumentID,
+			Version:            event.Data.DocumentVersion,
+			RawArtifactKey:     pgutil.Text(event.Data.RawArtifactKey),
+			ContentArtifactKey: pgutil.Text(event.Data.ContentArtifactKey),
+			ContentHash:        pgutil.Text(event.Data.ContentHash),
+			Title:              pgutil.Text(event.Data.Title),
+			Content:            pgutil.Text(event.Data.Content),
+			ExtractionMethod:   pgutil.Text(event.Data.ExtractionMethod),
+		}
+		if affected, completeErr := queries.CompleteDocumentVersion(ctx, versionParams); completeErr != nil {
 			err = completeErr
 		} else if affected != 1 {
 			err = fmt.Errorf("complete document version: affected=%d", affected)
 		} else if current {
-			if affected, completeErr := queries.CompleteScrape(ctx, dbgen.CompleteScrapeParams{ID: event.Data.DocumentID, CurrentVersion: event.Data.DocumentVersion, Title: pgutil.Text(event.Data.Title), Content: pgutil.Text(event.Data.Content), ThumbnailUrl: pgutil.Text(event.Data.ThumbnailURL), FileSize: event.Data.FileSize}); completeErr != nil {
+			scrapeParams := dbgen.CompleteScrapeParams{
+				ID:             event.Data.DocumentID,
+				CurrentVersion: event.Data.DocumentVersion,
+				Title:          pgutil.Text(event.Data.Title),
+				Content:        pgutil.Text(event.Data.Content),
+				ThumbnailUrl:   pgutil.Text(event.Data.ThumbnailURL),
+				FileSize:       event.Data.FileSize,
+			}
+			if affected, completeErr := queries.CompleteScrape(ctx, scrapeParams); completeErr != nil {
 				err = completeErr
 			} else if affected != 1 {
 				err = fmt.Errorf("complete scrape: affected=%d", affected)
 			}
 			if err == nil {
-				_, err = queries.CreateIngestionJob(ctx, dbgen.CreateIngestionJobParams{ID: idgen.New(), DocumentID: event.Data.DocumentID, DocumentVersion: event.Data.DocumentVersion, Type: dbgen.IngestionJobTypeENRICH})
+				jobParams := dbgen.CreateIngestionJobParams{
+					ID:              idgen.New(),
+					DocumentID:      event.Data.DocumentID,
+					DocumentVersion: event.Data.DocumentVersion,
+					Type:            dbgen.IngestionJobTypeENRICH,
+				}
+				_, err = queries.CreateIngestionJob(ctx, jobParams)
 			}
 		}
 		if err == nil && !documentFound {
-			if affected, requeueErr := queries.RequeueArtifactCleanupJob(ctx, event.Data.DocumentID); requeueErr != nil {
+			affected, requeueErr := queries.RequeueArtifactCleanupJob(ctx, event.Data.DocumentID)
+			if requeueErr != nil {
 				err = requeueErr
 			} else if affected != 1 {
 				err = fmt.Errorf("requeue artifact cleanup for deleted document: affected=%d", affected)

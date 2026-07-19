@@ -40,11 +40,25 @@ func main() {
 
 	var provider enrichment.Provider = enrichment.NewHashProvider(cfg.EmbeddingDimensions)
 	if cfg.AIBaseURL != "" {
-		provider = enrichment.NewHTTPProvider(cfg.AIBaseURL, cfg.AIAPIKey, cfg.EmbeddingModel, cfg.ChatModel, cfg.EmbeddingDimensions)
+		provider = enrichment.NewHTTPProvider(
+			cfg.AIBaseURL,
+			cfg.AIAPIKey,
+			cfg.EmbeddingModel,
+			cfg.ChatModel,
+			cfg.EmbeddingDimensions,
+		)
 	}
 	logger.Info("worker starting", "embedding_provider", provider.Name())
 	dispatcher := worker.NewOutboxDispatcher(pool, clients.SQS, cfg.ScrapeRequestQueueURL, logger)
-	consumer := worker.NewScrapeResultConsumer(pool, clients.SQS, clients.S3, cfg.ScrapeResultQueueURL, cfg.ArtifactBucket, cfg.QueuePollWait, logger)
+	consumer := worker.NewScrapeResultConsumer(
+		pool,
+		clients.SQS,
+		clients.S3,
+		cfg.ScrapeResultQueueURL,
+		cfg.ArtifactBucket,
+		cfg.QueuePollWait,
+		logger,
+	)
 	extractor := enrichment.NewS3ArtifactExtractor(clients.S3, cfg.DocumentBucket, provider)
 	processor := enrichment.NewProcessor(pool, provider, extractor, cfg.EnrichmentBatchSize, logger)
 	cleanup := worker.NewArtifactCleanupProcessor(pool, clients.S3, cfg.DocumentBucket, cfg.ArtifactBucket, logger)

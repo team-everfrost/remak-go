@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +25,12 @@ func TestWriteJSONKeepsLegacyEnvelope(t *testing.T) {
 
 func TestDecodeJSONRejectsUnknownFields(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest("POST", "/", strings.NewReader(`{"known":true,"admin":true}`))
+	request := httptest.NewRequestWithContext(
+		context.Background(),
+		"POST",
+		"/",
+		strings.NewReader(`{"known":true,"admin":true}`),
+	)
 	var input struct {
 		Known bool `json:"known"`
 	}

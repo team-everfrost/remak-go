@@ -16,6 +16,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pgvector/pgvector-go"
 	"github.com/pressly/goose/v3"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/team-everfrost/remak-go/db/migrations"
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/enrichment"
@@ -24,7 +26,6 @@ import (
 	"github.com/team-everfrost/remak-go/internal/platform/idgen"
 	"github.com/team-everfrost/remak-go/internal/platform/pgutil"
 	"github.com/team-everfrost/remak-go/internal/retrieval"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func TestDocumentTransactionsAndStableCursor(t *testing.T) {
@@ -45,21 +46,41 @@ func TestDocumentTransactionsAndStableCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	webpage, err := service.CreateWebpage(ctx, ownerID, "trace-integration", library.WebpageInput{Title: "Example", URL: "https://example.com"})
+	webpage, err := service.CreateWebpage(
+		ctx,
+		ownerID,
+		"trace-integration",
+		library.WebpageInput{Title: "Example", URL: "https://example.com"},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if memo.Status != "ENRICH_PENDING" || webpage.Status != "SCRAPE_PENDING" {
 		t.Fatalf("unexpected initial states: memo=%s webpage=%s", memo.Status, webpage.Status)
 	}
+	memoID := uuid.MustParse(memo.DocID)
+	webpageID := uuid.MustParse(webpage.DocID)
 	var versionCount, jobCount, outboxCount int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM document_versions WHERE document_id IN ($1,$2)", uuid.MustParse(memo.DocID), uuid.MustParse(webpage.DocID)).Scan(&versionCount); err != nil {
+	versionRow := pool.QueryRow(
+		ctx,
+		"SELECT count(*) FROM document_versions WHERE document_id IN ($1,$2)",
+		memoID,
+		webpageID,
+	)
+	if err := versionRow.Scan(&versionCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM ingestion_jobs WHERE document_id IN ($1,$2)", uuid.MustParse(memo.DocID), uuid.MustParse(webpage.DocID)).Scan(&jobCount); err != nil {
+	jobRow := pool.QueryRow(
+		ctx,
+		"SELECT count(*) FROM ingestion_jobs WHERE document_id IN ($1,$2)",
+		memoID,
+		webpageID,
+	)
+	if err := jobRow.Scan(&jobCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM outbox_events WHERE aggregate_id=$1", uuid.MustParse(webpage.DocID)).Scan(&outboxCount); err != nil {
+	outboxRow := pool.QueryRow(ctx, "SELECT count(*) FROM outbox_events WHERE aggregate_id=$1", webpageID)
+	if err := outboxRow.Scan(&outboxCount); err != nil {
 		t.Fatal(err)
 	}
 	if versionCount != 2 || jobCount != 2 || outboxCount != 1 {
@@ -72,7 +93,12 @@ func TestDocumentTransactionsAndStableCursor(t *testing.T) {
 	}
 	// Updating the first page item must not reorder it because the cursor is based
 	// on immutable created_at + id, not updated_at.
-	if _, err := pool.Exec(ctx, "UPDATE documents SET updated_at=now()+interval '1 day' WHERE id=$1", uuid.MustParse(firstPage[0].DocID)); err != nil {
+	_, err = pool.Exec(
+		ctx,
+		"UPDATE documents SET updated_at=now()+interval '1 day' WHERE id=$1",
+		uuid.MustParse(firstPage[0].DocID),
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
 	secondPage, err := service.List(ctx, ownerID, library.Cursor{Limit: 1, DocID: firstPage[0].DocID})
@@ -87,7 +113,12 @@ func TestDocumentTransactionsAndStableCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cleanupJobs int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM artifact_cleanup_jobs WHERE document_id=$1 AND state='QUEUED'", uuid.MustParse(memo.DocID)).Scan(&cleanupJobs); err != nil {
+	cleanupRow := pool.QueryRow(
+		ctx,
+		"SELECT count(*) FROM artifact_cleanup_jobs WHERE document_id=$1 AND state='QUEUED'",
+		memoID,
+	)
+	if err := cleanupRow.Scan(&cleanupJobs); err != nil {
 		t.Fatal(err)
 	}
 	if cleanupJobs != 1 {
@@ -115,7 +146,11 @@ func TestCollectionRejectsForeignDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.CreateCollection(ctx, ownerID, library.CreateCollectionInput{Name: "mine", DocIDs: []string{foreignDocument.DocID}})
+	_, err = service.CreateCollection(
+		ctx,
+		ownerID,
+		library.CreateCollectionInput{Name: "mine", DocIDs: []string{foreignDocument.DocID}},
+	)
 	if err == nil {
 		t.Fatal("foreign document must not be added to another account's collection")
 	}
@@ -135,7 +170,11 @@ func TestHybridRetrievalUsesPGVectorOnPostgres18(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM accounts WHERE id=$1", ownerID) })
 
 	libraryService := library.NewService(pool)
-	document, err := libraryService.CreateMemo(ctx, ownerID, library.MemoInput{Content: "MiniStack is a lightweight local AWS S3 and SQS emulator."})
+	document, err := libraryService.CreateMemo(
+		ctx,
+		ownerID,
+		library.MemoInput{Content: "MiniStack is a lightweight local AWS S3 and SQS emulator."},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,20 +218,37 @@ func TestWithdrawSoftDeletesDocumentsAndSchedulesCleanup(t *testing.T) {
 	accountID := createAccount(t, ctx, queries, "withdraw-integration@example.com")
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM accounts WHERE id=$1", accountID) })
 	var originalEmail string
-	if err := pool.QueryRow(ctx, "SELECT email::text FROM accounts WHERE id=$1", accountID).Scan(&originalEmail); err != nil {
+	emailRow := pool.QueryRow(ctx, "SELECT email::text FROM accounts WHERE id=$1", accountID)
+	if err := emailRow.Scan(&originalEmail); err != nil {
 		t.Fatal(err)
 	}
-	document, err := library.NewService(pool).CreateMemo(ctx, accountID, library.MemoInput{Content: "delete all my account data"})
+	document, err := library.NewService(pool).
+		CreateMemo(ctx, accountID, library.MemoInput{Content: "delete all my account data"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens := identity.NewTokenManager("integration-jwt-secret-long-enough", "integration", 15*time.Minute, 24*time.Hour)
-	service := identity.NewService(pool, tokens, identity.NoopCodeSender{}, "integration-challenge-secret-long-enough", true)
+	tokens := identity.NewTokenManager(
+		"integration-jwt-secret-long-enough",
+		"integration",
+		15*time.Minute,
+		24*time.Hour,
+	)
+	service := identity.NewService(
+		pool,
+		tokens,
+		identity.NoopCodeSender{},
+		"integration-challenge-secret-long-enough",
+		true,
+	)
 	challenge, err := service.RequestWithdrawCode(ctx, accountID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	verified, err := service.VerifyWithdrawCode(ctx, accountID, identity.VerifyCodeInput{ChallengeID: challenge.ChallengeID, Code: challenge.DebugCode})
+	verified, err := service.VerifyWithdrawCode(
+		ctx,
+		accountID,
+		identity.VerifyCodeInput{ChallengeID: challenge.ChallengeID, Code: challenge.DebugCode},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,20 +258,36 @@ func TestWithdrawSoftDeletesDocumentsAndSchedulesCleanup(t *testing.T) {
 
 	var accountDeleted, documentDeleted bool
 	var cleanupState string
-	if err := pool.QueryRow(ctx, "SELECT deleted_at IS NOT NULL FROM accounts WHERE id=$1", accountID).Scan(&accountDeleted); err != nil {
+	accountRow := pool.QueryRow(ctx, "SELECT deleted_at IS NOT NULL FROM accounts WHERE id=$1", accountID)
+	if err := accountRow.Scan(&accountDeleted); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, "SELECT deleted_at IS NOT NULL FROM documents WHERE id=$1", uuid.MustParse(document.DocID)).Scan(&documentDeleted); err != nil {
+	documentID := uuid.MustParse(document.DocID)
+	documentRow := pool.QueryRow(ctx, "SELECT deleted_at IS NOT NULL FROM documents WHERE id=$1", documentID)
+	if err := documentRow.Scan(&documentDeleted); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, "SELECT state::text FROM artifact_cleanup_jobs WHERE document_id=$1", uuid.MustParse(document.DocID)).Scan(&cleanupState); err != nil {
+	cleanupRow := pool.QueryRow(
+		ctx,
+		"SELECT state::text FROM artifact_cleanup_jobs WHERE document_id=$1",
+		documentID,
+	)
+	if err := cleanupRow.Scan(&cleanupState); err != nil {
 		t.Fatal(err)
 	}
 	if !accountDeleted || !documentDeleted || cleanupState != "QUEUED" {
-		t.Fatalf("withdraw invariant: account_deleted=%v document_deleted=%v cleanup=%s", accountDeleted, documentDeleted, cleanupState)
+		t.Fatalf(
+			"withdraw invariant: account_deleted=%v document_deleted=%v cleanup=%s",
+			accountDeleted,
+			documentDeleted,
+			cleanupState,
+		)
 	}
 	rejoinedID := idgen.New()
-	if _, err := queries.CreateAccount(ctx, dbgen.CreateAccountParams{ID: rejoinedID, Email: originalEmail}); err != nil {
+	if _, err := queries.CreateAccount(
+		ctx,
+		dbgen.CreateAccountParams{ID: rejoinedID, Email: originalEmail},
+	); err != nil {
 		t.Fatalf("withdrawn email must be reusable after immediate anonymization: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM accounts WHERE id=$1", rejoinedID) })
@@ -252,7 +324,12 @@ func createAccount(t *testing.T, ctx context.Context, queries *dbgen.Queries, em
 	}
 	id := idgen.New()
 	email = id.String() + "+" + email
-	if _, err := queries.CreateAccount(ctx, dbgen.CreateAccountParams{ID: id, Email: email, PasswordHash: pgutil.Text(string(hash))}); err != nil {
+	params := dbgen.CreateAccountParams{
+		ID:           id,
+		Email:        email,
+		PasswordHash: pgutil.Text(string(hash)),
+	}
+	if _, err := queries.CreateAccount(ctx, params); err != nil {
 		t.Fatal(err)
 	}
 	return id

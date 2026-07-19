@@ -8,7 +8,16 @@ import (
 )
 
 func TestEventEnvelopeContainsRequiredContractFields(t *testing.T) {
-	event := New(ScrapeRequested, "trace-1", ScrapeRequestData{JobID: uuid.Must(uuid.NewV7()), DocumentID: uuid.Must(uuid.NewV7()), DocumentVersion: 1, URL: "https://example.com"})
+	event := New(
+		ScrapeRequested,
+		"trace-1",
+		ScrapeRequestData{
+			JobID:           uuid.Must(uuid.NewV7()),
+			DocumentID:      uuid.Must(uuid.NewV7()),
+			DocumentVersion: 1,
+			URL:             "https://example.com",
+		},
+	)
 	payload, err := Marshal(event)
 	if err != nil {
 		t.Fatal(err)

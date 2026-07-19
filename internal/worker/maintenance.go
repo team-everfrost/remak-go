@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 )
 

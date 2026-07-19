@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/team-everfrost/remak-go/internal/dbgen"
 	"github.com/team-everfrost/remak-go/internal/events"
 	"github.com/team-everfrost/remak-go/internal/platform/httpx"
@@ -61,7 +62,12 @@ func (s *Service) CreateMemo(ctx context.Context, ownerID uuid.UUID, input MemoI
 	return documentFromRow(row, nil), nil
 }
 
-func (s *Service) CreateWebpage(ctx context.Context, ownerID uuid.UUID, traceID string, input WebpageInput) (Document, error) {
+func (s *Service) CreateWebpage(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	traceID string,
+	input WebpageInput,
+) (Document, error) {
 	cleanURL, err := validatePublicURL(input.URL)
 	if err != nil {
 		return Document{}, err
@@ -77,7 +83,10 @@ func (s *Service) CreateWebpage(ctx context.Context, ownerID uuid.UUID, traceID 
 		return Document{}, err
 	}
 	row, err := queries.CreateWebpage(ctx, dbgen.CreateWebpageParams{
-		ID: documentID, OwnerID: ownerID, Title: pgutil.Text(strings.TrimSpace(input.Title)), SourceUrl: pgutil.Text(cleanURL),
+		ID:        documentID,
+		OwnerID:   ownerID,
+		Title:     pgutil.Text(strings.TrimSpace(input.Title)),
+		SourceUrl: pgutil.Text(cleanURL),
 	})
 	if err != nil {
 		return Document{}, httpx.Internal(fmt.Errorf("create webpage: %w", err))
@@ -111,7 +120,15 @@ func (s *Service) UpdateMemo(ctx context.Context, ownerID, documentID uuid.UUID,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := s.queries.WithTx(tx)
-	row, err := queries.UpdateMemo(ctx, dbgen.UpdateMemoParams{ID: documentID, OwnerID: ownerID, Title: pgutil.Text(titleFromContent(content)), Content: pgutil.Text(content)})
+	row, err := queries.UpdateMemo(
+		ctx,
+		dbgen.UpdateMemoParams{
+			ID:      documentID,
+			OwnerID: ownerID,
+			Title:   pgutil.Text(titleFromContent(content)),
+			Content: pgutil.Text(content),
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Document{}, httpx.NotFound("document_not_found", "문서를 찾을 수 없습니다")
 	}
@@ -127,7 +144,12 @@ func (s *Service) UpdateMemo(ctx context.Context, ownerID, documentID uuid.UUID,
 	return documentFromRow(row, nil), nil
 }
 
-func (s *Service) UpdateWebpage(ctx context.Context, ownerID, documentID uuid.UUID, traceID string, input WebpageInput) (Document, error) {
+func (s *Service) UpdateWebpage(
+	ctx context.Context,
+	ownerID, documentID uuid.UUID,
+	traceID string,
+	input WebpageInput,
+) (Document, error) {
 	cleanURL, err := validatePublicURL(input.URL)
 	if err != nil {
 		return Document{}, err
@@ -138,7 +160,15 @@ func (s *Service) UpdateWebpage(ctx context.Context, ownerID, documentID uuid.UU
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := s.queries.WithTx(tx)
-	row, err := queries.BeginWebpageRefresh(ctx, dbgen.BeginWebpageRefreshParams{ID: documentID, OwnerID: ownerID, Title: pgutil.Text(strings.TrimSpace(input.Title)), SourceUrl: pgutil.Text(cleanURL)})
+	row, err := queries.BeginWebpageRefresh(
+		ctx,
+		dbgen.BeginWebpageRefreshParams{
+			ID:        documentID,
+			OwnerID:   ownerID,
+			Title:     pgutil.Text(strings.TrimSpace(input.Title)),
+			SourceUrl: pgutil.Text(cleanURL),
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Document{}, httpx.NotFound("document_not_found", "문서를 찾을 수 없습니다")
 	}
@@ -154,7 +184,13 @@ func (s *Service) UpdateWebpage(ctx context.Context, ownerID, documentID uuid.UU
 	return documentFromRow(row, nil), nil
 }
 
-func (s *Service) createVersionAndJob(ctx context.Context, queries *dbgen.Queries, row dbgen.Document, jobType dbgen.IngestionJobType, traceID string) error {
+func (s *Service) createVersionAndJob(
+	ctx context.Context,
+	queries *dbgen.Queries,
+	row dbgen.Document,
+	jobType dbgen.IngestionJobType,
+	traceID string,
+) error {
 	if _, err := queries.CreateDocumentVersion(ctx, dbgen.CreateDocumentVersionParams{
 		ID: idgen.New(), DocumentID: row.ID, Version: row.CurrentVersion, Title: row.Title, Content: row.Content,
 	}); err != nil {
@@ -200,7 +236,14 @@ func (s *Service) Get(ctx context.Context, ownerID, documentID uuid.UUID) (Docum
 }
 
 func (s *Service) List(ctx context.Context, ownerID uuid.UUID, cursor Cursor) ([]Document, error) {
-	rows, err := s.queries.ListDocuments(ctx, dbgen.ListDocumentsParams{OwnerID: ownerID, Limit: boundedLimit(cursor.Limit), CursorID: nullableUUID(cursor.DocID)})
+	rows, err := s.queries.ListDocuments(
+		ctx,
+		dbgen.ListDocumentsParams{
+			OwnerID:  ownerID,
+			Limit:    boundedLimit(cursor.Limit),
+			CursorID: nullableUUID(cursor.DocID),
+		},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("list documents: %w", err))
 	}
@@ -208,22 +251,48 @@ func (s *Service) List(ctx context.Context, ownerID uuid.UUID, cursor Cursor) ([
 }
 
 func (s *Service) ListByTag(ctx context.Context, ownerID uuid.UUID, name string, cursor Cursor) ([]Document, error) {
-	rows, err := s.queries.ListDocumentsByTag(ctx, dbgen.ListDocumentsByTagParams{OwnerID: ownerID, Name: name, Limit: boundedLimit(cursor.Limit), CursorID: nullableUUID(cursor.DocID)})
+	rows, err := s.queries.ListDocumentsByTag(
+		ctx,
+		dbgen.ListDocumentsByTagParams{
+			OwnerID:  ownerID,
+			Name:     name,
+			Limit:    boundedLimit(cursor.Limit),
+			CursorID: nullableUUID(cursor.DocID),
+		},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("list documents by tag: %w", err))
 	}
 	return s.withTags(ctx, ownerID, rows)
 }
 
-func (s *Service) ListByCollection(ctx context.Context, ownerID uuid.UUID, name string, cursor Cursor) ([]Document, error) {
-	rows, err := s.queries.ListDocumentsByCollection(ctx, dbgen.ListDocumentsByCollectionParams{OwnerID: ownerID, Name: name, Limit: boundedLimit(cursor.Limit), CursorID: nullableUUID(cursor.DocID)})
+func (s *Service) ListByCollection(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	name string,
+	cursor Cursor,
+) ([]Document, error) {
+	rows, err := s.queries.ListDocumentsByCollection(
+		ctx,
+		dbgen.ListDocumentsByCollectionParams{
+			OwnerID:  ownerID,
+			Name:     name,
+			Limit:    boundedLimit(cursor.Limit),
+			CursorID: nullableUUID(cursor.DocID),
+		},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("list documents by collection: %w", err))
 	}
 	return s.withTags(ctx, ownerID, rows)
 }
 
-func (s *Service) SearchText(ctx context.Context, ownerID uuid.UUID, query string, limit, offset int32) ([]Document, error) {
+func (s *Service) SearchText(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	query string,
+	limit, offset int32,
+) ([]Document, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return []Document{}, nil
@@ -231,7 +300,15 @@ func (s *Service) SearchText(ctx context.Context, ownerID uuid.UUID, query strin
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.queries.SearchDocumentsText(ctx, dbgen.SearchDocumentsTextParams{OwnerID: ownerID, Query: pgutil.Text(query), PageSize: boundedLimit(limit), PageOffset: offset})
+	rows, err := s.queries.SearchDocumentsText(
+		ctx,
+		dbgen.SearchDocumentsTextParams{
+			OwnerID:    ownerID,
+			Query:      pgutil.Text(query),
+			PageSize:   boundedLimit(limit),
+			PageOffset: offset,
+		},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("search documents: %w", err))
 	}
@@ -242,7 +319,10 @@ func (s *Service) GetMany(ctx context.Context, ownerID uuid.UUID, documentIDs []
 	if len(documentIDs) == 0 {
 		return []Document{}, nil
 	}
-	rows, err := s.queries.GetOwnedDocumentsByIDs(ctx, dbgen.GetOwnedDocumentsByIDsParams{OwnerID: ownerID, DocumentIds: documentIDs})
+	rows, err := s.queries.GetOwnedDocumentsByIDs(
+		ctx,
+		dbgen.GetOwnedDocumentsByIDsParams{OwnerID: ownerID, DocumentIds: documentIDs},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("get documents by ids: %w", err))
 	}
@@ -273,7 +353,11 @@ func (s *Service) Delete(ctx context.Context, ownerID, documentID uuid.UUID) err
 	if affected != 1 {
 		return httpx.NotFound("document_not_found", "문서를 찾을 수 없습니다")
 	}
-	if err := queries.CreateArtifactCleanupJob(ctx, dbgen.CreateArtifactCleanupJobParams{ID: idgen.New(), DocumentID: documentID}); err != nil {
+	cleanupParams := dbgen.CreateArtifactCleanupJobParams{
+		ID:         idgen.New(),
+		DocumentID: documentID,
+	}
+	if err := queries.CreateArtifactCleanupJob(ctx, cleanupParams); err != nil {
 		return httpx.Internal(fmt.Errorf("schedule artifact cleanup: %w", err))
 	}
 	if err := queries.DeleteDocumentTags(ctx, documentID); err != nil {
@@ -295,7 +379,15 @@ func (s *Service) ListTags(ctx context.Context, ownerID uuid.UUID, query string,
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.queries.ListTags(ctx, dbgen.ListTagsParams{OwnerID: ownerID, Query: strings.TrimSpace(query), PageSize: boundedLimit(limit), PageOffset: offset})
+	rows, err := s.queries.ListTags(
+		ctx,
+		dbgen.ListTagsParams{
+			OwnerID:    ownerID,
+			Query:      strings.TrimSpace(query),
+			PageSize:   boundedLimit(limit),
+			PageOffset: offset,
+		},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("list tags: %w", err))
 	}
@@ -310,13 +402,20 @@ func (s *Service) ListCollections(ctx context.Context, ownerID uuid.UUID, limit,
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.queries.ListCollections(ctx, dbgen.ListCollectionsParams{OwnerID: ownerID, Limit: boundedLimit(limit), Offset: offset})
+	rows, err := s.queries.ListCollections(
+		ctx,
+		dbgen.ListCollectionsParams{OwnerID: ownerID, Limit: boundedLimit(limit), Offset: offset},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("list collections: %w", err))
 	}
 	result := make([]Collection, len(rows))
 	for index, row := range rows {
-		result[index] = Collection{Name: row.Name, Description: pgutil.String(row.Description), Count: row.DocumentCount}
+		result[index] = Collection{
+			Name:        row.Name,
+			Description: pgutil.String(row.Description),
+			Count:       row.DocumentCount,
+		}
 	}
 	return result, nil
 }
@@ -332,7 +431,11 @@ func (s *Service) GetCollection(ctx context.Context, ownerID uuid.UUID, name str
 	return Collection{Name: row.Name, Description: pgutil.String(row.Description)}, nil
 }
 
-func (s *Service) CreateCollection(ctx context.Context, ownerID uuid.UUID, input CreateCollectionInput) (Collection, error) {
+func (s *Service) CreateCollection(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	input CreateCollectionInput,
+) (Collection, error) {
 	name, err := validateCollectionName(input.Name)
 	if err != nil {
 		return Collection{}, err
@@ -353,7 +456,15 @@ func (s *Service) CreateCollection(ctx context.Context, ownerID uuid.UUID, input
 	if err := validateOwnedDocuments(ctx, queries, ownerID, documentIDs); err != nil {
 		return Collection{}, err
 	}
-	row, err := queries.CreateCollection(ctx, dbgen.CreateCollectionParams{ID: idgen.New(), OwnerID: ownerID, Name: name, Description: pgutil.Text(strings.TrimSpace(input.Description))})
+	row, err := queries.CreateCollection(
+		ctx,
+		dbgen.CreateCollectionParams{
+			ID:          idgen.New(),
+			OwnerID:     ownerID,
+			Name:        name,
+			Description: pgutil.Text(strings.TrimSpace(input.Description)),
+		},
+	)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -362,7 +473,12 @@ func (s *Service) CreateCollection(ctx context.Context, ownerID uuid.UUID, input
 		return Collection{}, httpx.Internal(fmt.Errorf("create collection: %w", err))
 	}
 	for _, documentID := range documentIDs {
-		if err := queries.AddDocumentToCollection(ctx, dbgen.AddDocumentToCollectionParams{CollectionID: row.ID, DocumentID: documentID, OwnerID: ownerID}); err != nil {
+		params := dbgen.AddDocumentToCollectionParams{
+			CollectionID: row.ID,
+			DocumentID:   documentID,
+			OwnerID:      ownerID,
+		}
+		if err := queries.AddDocumentToCollection(ctx, params); err != nil {
 			return Collection{}, httpx.Internal(fmt.Errorf("add document to collection: %w", err))
 		}
 	}
@@ -394,7 +510,12 @@ func (s *Service) AddDocumentsToCollection(ctx context.Context, ownerID uuid.UUI
 		return err
 	}
 	for _, documentID := range documentIDs {
-		if err := queries.AddDocumentToCollection(ctx, dbgen.AddDocumentToCollectionParams{CollectionID: row.ID, DocumentID: documentID, OwnerID: ownerID}); err != nil {
+		params := dbgen.AddDocumentToCollectionParams{
+			CollectionID: row.ID,
+			DocumentID:   documentID,
+			OwnerID:      ownerID,
+		}
+		if err := queries.AddDocumentToCollection(ctx, params); err != nil {
 			return httpx.Internal(fmt.Errorf("add document to collection: %w", err))
 		}
 	}
@@ -404,8 +525,16 @@ func (s *Service) AddDocumentsToCollection(ctx context.Context, ownerID uuid.UUI
 	return nil
 }
 
-func (s *Service) UpdateCollection(ctx context.Context, ownerID uuid.UUID, currentName string, input UpdateCollectionInput) (Collection, error) {
-	current, err := s.queries.GetCollectionByName(ctx, dbgen.GetCollectionByNameParams{OwnerID: ownerID, Name: currentName})
+func (s *Service) UpdateCollection(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	currentName string,
+	input UpdateCollectionInput,
+) (Collection, error) {
+	current, err := s.queries.GetCollectionByName(
+		ctx,
+		dbgen.GetCollectionByNameParams{OwnerID: ownerID, Name: currentName},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Collection{}, httpx.NotFound("collection_not_found", "컬렉션을 찾을 수 없습니다")
 	}
@@ -441,7 +570,15 @@ func (s *Service) UpdateCollection(ctx context.Context, ownerID uuid.UUID, curre
 	if err := validateOwnedDocuments(ctx, queries, ownerID, allChanged); err != nil {
 		return Collection{}, err
 	}
-	updated, err := queries.UpdateCollection(ctx, dbgen.UpdateCollectionParams{OwnerID: ownerID, Name: currentName, Name_2: name, Description: pgutil.Text(description)})
+	updated, err := queries.UpdateCollection(
+		ctx,
+		dbgen.UpdateCollectionParams{
+			OwnerID:     ownerID,
+			Name:        currentName,
+			Name_2:      name,
+			Description: pgutil.Text(description),
+		},
+	)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -450,12 +587,22 @@ func (s *Service) UpdateCollection(ctx context.Context, ownerID uuid.UUID, curre
 		return Collection{}, httpx.Internal(fmt.Errorf("update collection: %w", err))
 	}
 	for _, documentID := range added {
-		if err := queries.AddDocumentToCollection(ctx, dbgen.AddDocumentToCollectionParams{CollectionID: current.ID, DocumentID: documentID, OwnerID: ownerID}); err != nil {
+		params := dbgen.AddDocumentToCollectionParams{
+			CollectionID: current.ID,
+			DocumentID:   documentID,
+			OwnerID:      ownerID,
+		}
+		if err := queries.AddDocumentToCollection(ctx, params); err != nil {
 			return Collection{}, httpx.Internal(err)
 		}
 	}
 	for _, documentID := range removed {
-		if err := queries.RemoveOwnedDocumentFromCollection(ctx, dbgen.RemoveOwnedDocumentFromCollectionParams{CollectionID: current.ID, DocumentID: documentID, OwnerID: ownerID}); err != nil {
+		params := dbgen.RemoveOwnedDocumentFromCollectionParams{
+			CollectionID: current.ID,
+			DocumentID:   documentID,
+			OwnerID:      ownerID,
+		}
+		if err := queries.RemoveOwnedDocumentFromCollection(ctx, params); err != nil {
 			return Collection{}, httpx.Internal(err)
 		}
 	}
@@ -488,7 +635,10 @@ func (s *Service) withTags(ctx context.Context, ownerID uuid.UUID, rows []dbgen.
 		byID[row.ID] = index
 		result[index] = documentFromRow(row, []string{})
 	}
-	tags, err := s.queries.ListDocumentTagNames(ctx, dbgen.ListDocumentTagNamesParams{OwnerID: ownerID, DocumentIds: ids})
+	tags, err := s.queries.ListDocumentTagNames(
+		ctx,
+		dbgen.ListDocumentTagNamesParams{OwnerID: ownerID, DocumentIds: ids},
+	)
 	if err != nil {
 		return nil, httpx.Internal(fmt.Errorf("list document tags: %w", err))
 	}
@@ -504,7 +654,20 @@ func documentFromRow(row dbgen.Document, tags []string) Document {
 	if tags == nil {
 		tags = []string{}
 	}
-	return Document{DocID: row.ID.String(), Title: pgutil.String(row.Title), Type: string(row.Type), URL: pgutil.String(row.SourceUrl), Content: pgutil.String(row.Content), Summary: pgutil.String(row.Summary), Status: string(row.Status), ThumbnailURL: pgutil.String(row.ThumbnailUrl), FileSize: row.FileSize, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time, Tags: tags}
+	return Document{
+		DocID:        row.ID.String(),
+		Title:        pgutil.String(row.Title),
+		Type:         string(row.Type),
+		URL:          pgutil.String(row.SourceUrl),
+		Content:      pgutil.String(row.Content),
+		Summary:      pgutil.String(row.Summary),
+		Status:       string(row.Status),
+		ThumbnailURL: pgutil.String(row.ThumbnailUrl),
+		FileSize:     row.FileSize,
+		CreatedAt:    row.CreatedAt.Time,
+		UpdatedAt:    row.UpdatedAt.Time,
+		Tags:         tags,
+	}
 }
 
 func DocumentFromRow(row dbgen.Document) Document {
@@ -513,7 +676,8 @@ func DocumentFromRow(row dbgen.Document) Document {
 
 func validatePublicURL(raw string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil {
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" ||
+		parsed.User != nil {
 		return "", httpx.BadRequest("invalid_url", "http 또는 https 웹 주소가 필요합니다")
 	}
 	parsed.Fragment = ""
@@ -565,11 +729,19 @@ func parseDocumentIDs(rawIDs []string) ([]uuid.UUID, error) {
 	return result, nil
 }
 
-func validateOwnedDocuments(ctx context.Context, queries *dbgen.Queries, ownerID uuid.UUID, documentIDs []uuid.UUID) error {
+func validateOwnedDocuments(
+	ctx context.Context,
+	queries *dbgen.Queries,
+	ownerID uuid.UUID,
+	documentIDs []uuid.UUID,
+) error {
 	if len(documentIDs) == 0 {
 		return nil
 	}
-	count, err := queries.CountOwnedDocumentsByIDs(ctx, dbgen.CountOwnedDocumentsByIDsParams{OwnerID: ownerID, DocumentIds: documentIDs})
+	count, err := queries.CountOwnedDocumentsByIDs(
+		ctx,
+		dbgen.CountOwnedDocumentsByIDsParams{OwnerID: ownerID, DocumentIds: documentIDs},
+	)
 	if err != nil {
 		return httpx.Internal(fmt.Errorf("validate document ownership: %w", err))
 	}
